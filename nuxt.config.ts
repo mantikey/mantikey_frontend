@@ -1,26 +1,47 @@
 import vuetify, { transformAssetUrls } from 'vite-plugin-vuetify';
 
 export default defineNuxtConfig({
-  ssr: false,
+  app: {
+    buildAssetsDir: '/something/',
+    head: {
+      htmlAttrs: { dir: 'rtl', lang: 'fa' },
+      link: [
+        {
+          rel: 'icon',
+          type: 'image/png',
+          href: '/images/favicon.png',
+        },
+      ],
+    },
+  },
 
+  devtools: { enabled: true },
+
+  // Add Vuetify build configuration
+  build: {
+    transpile: ['vuetify'],
+  },
+
+  // Add Vuetify CSS
   css: [
-    'vuetify/styles',
-    '@mdi/font/css/materialdesignicons.css',
-    '@/assets/main.css',
+    'vuetify/lib/styles/main.sass',
+    '@mdi/font/css/materialdesignicons.min.css',
   ],
 
-  typescript: { shim: false },
-  build: { transpile: ['vuetify'] },
-
+  // Vite configuration for Vuetify
   vite: {
-    vue: { template: { transformAssetUrls } },
+    define: {
+      'process.env.DEBUG': false,
+    },
+    ssr: {
+      noExternal: ['vuetify'],
+    },
   },
 
-  modules: [],
-
-  app: {
-    head: { title: 'Hello Nuxt + Vuetify' },
+  // Add TypeScript support
+  typescript: {
+    strict: true,
   },
 
-  compatibilityDate: '2025-09-01',
+  compatibilityDate: '2025-09-02',
 });
