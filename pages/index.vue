@@ -1,10 +1,59 @@
 <template>
   <v-app>
-    <v-container fluid class="pa-6">
-      <v-row>
-        <v-col cols="12">
-          <h1 class="text-h3 mb-6">MantiKey</h1>
+    <v-app-bar flat scroll-behavior="hide">
+      <h1 class="text-h4 ma-5">MantiKey</h1>
+      <v-spacer></v-spacer>
 
+      <v-menu v-if="isConnected" offset-y>
+        <template #activator="{ props }">
+          <v-btn v-bind="props" variant="outlined" class="ma-5" color="primary">
+            {{ truncateAddress(account || '') }}
+          </v-btn>
+        </template>
+
+        <v-list>
+          <v-list-item @click="viewOnExplorer">
+            <v-list-item-title>View on Explorer</v-list-item-title>
+          </v-list-item>
+
+          <v-list-item @click="disconnect">
+            <v-list-item-title>Disconnect</v-list-item-title>
+          </v-list-item>
+        </v-list>
+      </v-menu>
+
+      <v-btn
+        v-else
+        variant="flat"
+        color="primary"
+        class="ma-5"
+        @click="connect"
+      >
+        <v-icon start>mdi-wallet</v-icon>
+        Connect Wallet
+      </v-btn>
+    </v-app-bar>
+    <!-- ========== BODY ========== -->
+
+    <v-container
+      v-if="walletLoading"
+      class="d-flex align-center justify-center"
+      style="height: 70vh"
+    >
+      <v-progress-circular indeterminate color="primary"></v-progress-circular>
+    </v-container>
+
+    <v-container
+      v-if="!isConnected"
+      class="d-flex align-center justify-center"
+      style="height: 70vh"
+    >
+      <h2 class="text-h5 font-weight-medium">Please connect your wallet</h2>
+    </v-container>
+
+    <v-container v-else fluid class="mt-10 pa-6">
+      <v-row class="mt-5">
+        <v-col cols="12">
           <v-card>
             <v-card-title>
               <v-icon class="mr-2">mdi-wallet-outline</v-icon>
@@ -16,13 +65,17 @@
                   variant="text"
                   size="small"
                   :loading="loading"
-                  @click="refreshTransactions"
+                  @click="refreshAll"
                 ></v-btn>
                 <v-chip color="primary" variant="outlined">
                   {{ pendingTransactions.length }} pending
                 </v-chip>
               </div>
             </v-card-title>
+
+            <!--
+          * ~~~~~~~~~~ Transactions Proposals Table ~~~~~~~~~~~~
+          */-->
 
             <v-data-table
               :headers="headers"
@@ -146,16 +199,6 @@
                               <strong>Transaction Hash:</strong>
                               <code class="ml-2">{{ item.txHash }}</code>
                             </div>
-                            <div class="mb-4">
-                              <strong>Nonce:</strong>
-                              <span class="ml-2">{{ item.nonce }}</span>
-                            </div>
-                            <div class="mb-4">
-                              <strong>Gas Limit:</strong>
-                              <span class="ml-2">{{
-                                item.gasLimit?.toLocaleString()
-                              }}</span>
-                            </div>
                           </v-col>
                           <v-col cols="12" md="6">
                             <div class="mb-4">
@@ -174,6 +217,117 @@
                     </v-card>
                   </td>
                 </tr>
+              </template>
+            </v-data-table>
+          </v-card>
+
+          <!--
+          * ~~~~~~~~~~ Governance Proposals Table ~~~~~~~~~~~~
+          */-->
+
+          <v-card>
+            <v-card-title>
+              <v-icon class="mr-2">mdi-file-document-outline</v-icon>
+              Governance Proposals
+              <v-spacer></v-spacer>
+              <div class="d-flex ga-2 align-center">
+                <v-btn
+                  icon="mdi-refresh"
+                  variant="text"
+                  size="small"
+                  :loading="loadingProposals"
+                  @click="loadProposals"
+                ></v-btn>
+
+                <v-btn
+                  size="small"
+                  color="success"
+                  variant="outlined"
+                  @click="newProposalDialog = true"
+                >
+                  <v-icon>mdi-plus</v-icon>
+                  new proposal
+                </v-btn>
+              </div>
+            </v-card-title>
+
+            <v-data-table
+              :headers="proposalHeaders"
+              :items="proposals"
+              :items-per-page="10"
+              :loading="loadingProposals"
+              class="elevation-0"
+              loading-text="Loading proposals..."
+              no-data-text="No governance proposals found"
+            >
+              <!-- Proposal ID -->
+              <template v-slot:item.id="{ item }">
+                <v-chip size="small" color="blue" variant="outlined">
+                  #{{ item.id }}
+                </v-chip>
+              </template>
+
+              <!-- Proposal Type -->
+              <template v-slot:item.proposalType="{ item }">
+                <v-chip size="small" color="indigo" variant="outlined">
+                  {{ item.proposalType }}
+                </v-chip>
+              </template>
+
+              <!-- Proposer -->
+              <template v-slot:item.proposer="{ item }">
+                <code class="text-caption">{{ item.proposer }}</code>
+              </template>
+
+              <!-- Proposer -->
+              <template v-slot:item.theSigner="{ item }">
+                <code class="text-caption">{{ item.theSigner }}</code>
+              </template>
+
+              <!-- Proposer -->
+              <template v-slot:item.newThreshold="{ item }">
+                <code class="text-caption">{{ item.newThreshold }}</code>
+              </template>
+
+              <!-- Status -->
+              <template v-slot:item.status="{ item }">
+                <v-chip size="small" :color="getStatusColor(item.status)">
+                  {{ item.status }}
+                </v-chip>
+              </template>
+
+              <!-- Created At -->
+              <template v-slot:item.createdAt="{ item }">
+                {{ new Date(item.createdAt).toLocaleString() }}
+              </template>
+
+              <!-- Actions -->
+              <template v-slot:item.action="{ item }">
+                <div class="d-flex ga-2">
+                  <v-btn
+                    size="small"
+                    color="success"
+                    variant="flat"
+                    :disabled="item.status === 'pending'"
+                    :loading="executingProposal === item.id"
+                    @click="signProposal(item)"
+                  >
+                    <v-icon>mdi-pen</v-icon>
+                    Sign
+                  </v-btn>
+
+                  <v-btn
+                    size="small"
+                    color="orange"
+                    variant="flat"
+                    :disabled="item.status === 'pending'"
+                    :loading="executingProposal === item.id"
+                    @click="executeProposal(item)"
+                  >
+                    <v-icon>mdi-play</v-icon>
+                    Execute
+                  </v-btn>
+                </div>
               </template>
             </v-data-table>
           </v-card>
@@ -287,6 +441,90 @@
         </v-card>
       </v-dialog>
 
+      <!-- New Proposal Dialog -->
+      <v-dialog v-model="newProposalDialog" max-width="600">
+        <v-card>
+          <v-card-title class="d-flex align-center">
+            <v-icon class="mr-2">mdi-plus-box-outline</v-icon>
+            Create New Proposal
+            <v-spacer></v-spacer>
+            <v-btn
+              icon="mdi-close"
+              variant="text"
+              @click="newProposalDialog = false"
+            ></v-btn>
+          </v-card-title>
+
+          <v-card-text>
+            <v-form v-model="formValid" ref="proposalForm">
+              <!-- Proposal Type -->
+              <v-select
+                v-model="newProposal.proposalType"
+                :items="proposalTypes"
+                label="Proposal Type"
+                required
+              ></v-select>
+
+              <!-- Conditional fields -->
+              <v-text-field
+                v-if="newProposal.proposalType === 'ADD_SIGNER'"
+                v-model="newProposal.theSigner"
+                label="New Signer Address"
+                required
+              ></v-text-field>
+
+              <v-text-field
+                v-if="newProposal.proposalType === 'REMOVE_SIGNER'"
+                v-model="newProposal.theSigner"
+                label="Signer Address to Remove"
+                required
+              ></v-text-field>
+
+              <v-text-field
+                v-if="newProposal.proposalType === 'CHANGE_THRESHOLD'"
+                v-model="newProposal.newThreshold"
+                label="New Threshold"
+                type="number"
+                min="1"
+                required
+              ></v-text-field>
+
+              <v-alert
+                v-if="newProposal.proposalType === 'PAUSE'"
+                type="warning"
+                variant="tonal"
+                class="mt-4"
+              >
+                This proposal will pause the contract.
+              </v-alert>
+
+              <v-alert
+                v-if="newProposal.proposalType === 'UNPAUSE'"
+                type="success"
+                variant="tonal"
+                class="mt-4"
+              >
+                This proposal will unpause the contract.
+              </v-alert>
+            </v-form>
+          </v-card-text>
+
+          <v-card-actions>
+            <v-spacer></v-spacer>
+            <v-btn
+              color="primary"
+              variant="flat"
+              :loading="submitting"
+              :disabled="!formValid"
+              @click="handleSubmitProposal"
+            >
+              <v-icon class="mr-2">mdi-check</v-icon>
+              Submit Proposal
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
       <!-- Snackbar for notifications -->
       <v-snackbar
         v-model="snackbar.show"
@@ -303,197 +541,38 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
+import { useRuntimeConfig } from '#app';
+import { useMetaMask } from '../composables/useMetaMask';
 
-// Types
-interface Transaction {
-  id: number;
-  to: string;
-  value: bigint;
-  data: string;
-  functionName?: string;
-  nonce: number;
-  gasLimit?: number;
-  txHash: string;
-  signatures: number;
-  threshold: number;
-  status: 'pending' | 'executed' | 'rejected';
-  createdAt: Date;
-  signers?: string[];
-}
+// types
+import type { Transaction } from '../types/transaction';
+import type { Proposal } from '../types/proposal';
 
-interface ApiTransactionResponse {
-  id: number;
-  to: string;
-  value: string; // comes as string from API
-  data: string;
-  functionName?: string;
-  nonce: number;
-  gasLimit?: number;
-  txHash: string;
-  signatures: number;
-  threshold: number;
-  status: 'pending' | 'executed' | 'rejected';
-  createdAt: string; // ISO string from API
-  signers?: string[];
-}
+// utils
+import { truncateAddress, formatEther } from '../utils/format';
+import { getFunctionColor, getStatusColor } from '../utils/colors';
 
-// Reactive state
-const detailsDialog = ref(false);
-const selectedTransaction = ref<Transaction | null>(null);
-const signingTx = ref<number | null>(null);
-const executingTx = ref<number | null>(null);
-const loading = ref(true);
-const snackbar = ref({
-  show: false,
-  text: '',
-  color: 'success',
-});
+// services
+import { fetchProposals, submitProposal } from '../services/api';
 
-const pendingTransactions = ref<Transaction[]>([]);
+// Nuxt runtime config
+const config = useRuntimeConfig();
+const apiBaseURL = config.public.apiBaseURL;
+const explorerURI = config.public.explorerURI;
 
-// Mock API function
-const fetchTransactions = async (): Promise<ApiTransactionResponse[]> => {
-  // Simulate API delay
-  await new Promise((resolve) => setTimeout(resolve, 1500));
+// metamask composable
+const {
+  isConnected,
+  account,
+  balance,
+  connect,
+  disconnect,
+  getBalance,
+  signMessage,
+} = useMetaMask();
 
-  // Mock API response data
-  const mockApiData: ApiTransactionResponse[] = [
-    {
-      id: 1,
-      to: '0x742d35Cc7dF5C0532C38a5a5B5F8D9e4F8e8b9D2',
-      value: '1000000000000000000', // 1 ETH in wei
-      data: '0xa9059cbb000000000000000000000000742d35cc7df5c0532c38a5a5b5f8d9e4f8e8b9d20000000000000000000000000000000000000000000000000de0b6b3a7640000',
-      functionName: 'transfer',
-      nonce: 123,
-      gasLimit: 21000,
-      txHash:
-        '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-      signatures: 2,
-      threshold: 3,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-      signers: ['0xSigner1', '0xSigner2'],
-    },
-    {
-      id: 2,
-      to: '0x8ba1f109551bD432803012645Hac136c',
-      value: '500000000000000000', // 0.5 ETH
-      data: '0x',
-      nonce: 124,
-      gasLimit: 21000,
-      txHash:
-        '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
-      signatures: 1,
-      threshold: 3,
-      status: 'pending',
-      createdAt: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
-    },
-    {
-      id: 3,
-      to: '0x9f8f72aA9304c8B593d555F12eF6589cC3A579A2',
-      value: '2000000000000000000', // 2 ETH
-      data: '0x17c33503000000000000000000000000742d35cc7df5c0532c38a5a5b5f8d9e4f8e8b9d2',
-      functionName: 'proposeAddSigner',
-      nonce: 125,
-      gasLimit: 50000,
-      txHash:
-        '0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321',
-      signatures: 3,
-      threshold: 3,
-      status: 'pending',
-      createdAt: new Date(Date.now() - 7200000).toISOString(), // 2 hours ago
-    },
-    {
-      id: 4,
-      to: '0xA0b86a33E6441e7C6E2650fd5E4E3e2b5A9e0D3C',
-      value: '0', // 0 ETH for contract interaction
-      data: '0x536db4cb', // pause function
-      functionName: 'pause',
-      nonce: 126,
-      gasLimit: 45000,
-      txHash:
-        '0x9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba',
-      signatures: 0,
-      threshold: 3,
-      status: 'pending',
-      createdAt: new Date(Date.now() - 1800000).toISOString(), // 30 minutes ago
-    },
-    {
-      id: 5,
-      to: '0xB1c23d45E6789aBc0123D45e6789AbC0123d45E6',
-      value: '750000000000000000', // 0.75 ETH
-      data: '0x9c23fa610000000000000000000000000000000000000000000000000000000000000005',
-      functionName: 'proposeChangeThreshold',
-      nonce: 127,
-      gasLimit: 35000,
-      txHash:
-        '0x5432109876fedcba5432109876fedcba5432109876fedcba5432109876fedcba',
-      signatures: 1,
-      threshold: 3,
-      status: 'pending',
-      createdAt: new Date(Date.now() - 900000).toISOString(), // 15 minutes ago
-    },
-  ];
-
-  // Simulate occasional API errors (uncomment to test error handling)
-  // if (Math.random() < 0.1) {
-  //   throw new Error('Failed to fetch transactions')
-  // }
-
-  return mockApiData;
-};
-
-// Convert API response to internal format
-const transformApiTransaction = (
-  apiTx: ApiTransactionResponse
-): Transaction => {
-  return {
-    ...apiTx,
-    value: BigInt(apiTx.value),
-    createdAt: new Date(apiTx.createdAt),
-  };
-};
-
-// Load transactions from API
-const loadTransactions = async () => {
-  loading.value = true;
-  try {
-    console.log('Fetching transactions from API...');
-    const apiTransactions = await fetchTransactions();
-
-    // Transform API data to internal format
-    const transactions = apiTransactions.map(transformApiTransaction);
-
-    // Sort by newest first
-    transactions.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
-    pendingTransactions.value = transactions;
-
-    console.log(`Loaded ${transactions.length} transactions`);
-    showSnackbar(
-      `Loaded ${transactions.length} transaction requests`,
-      'success'
-    );
-  } catch (error) {
-    console.error('Error fetching transactions:', error);
-    showSnackbar('Failed to load transactions', 'error');
-  } finally {
-    loading.value = false;
-  }
-};
-
-// Refresh transactions
-const refreshTransactions = () => {
-  loadTransactions();
-};
-
-// Mount hook
-onMounted(() => {
-  loadTransactions();
-});
-
-// Table headers
+// table headers
 const headers = [
   { title: 'ID', key: 'id', sortable: true, width: '80px' },
   { title: 'To', key: 'to', sortable: false, width: '140px' },
@@ -504,64 +583,192 @@ const headers = [
   { title: 'Actions', key: 'actions', sortable: false, width: '200px' },
 ];
 
-// Helper functions
-const truncateAddress = (address: string): string => {
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
-};
+const proposalHeaders = [
+  { title: 'ID', key: 'id', sortable: true, width: '80px' },
+  { title: 'Type', key: 'proposalType', sortable: true, width: '140px' },
+  { title: 'Proposer', key: 'proposer', sortable: false, width: '200px' },
+  { title: 'The Signer', key: 'theSigner', sortable: false, width: '200px' },
+  {
+    title: 'New Threshold',
+    key: 'newThreshold',
+    sortable: false,
+    width: '200px',
+  },
+  { title: 'Status', key: 'status', sortable: true, width: '120px' },
+  { title: 'Created At', key: 'createdAt', sortable: true, width: '180px' },
+  { title: 'Action', key: 'action', sortable: true, width: '100px' },
+];
 
-const formatEther = (wei: bigint): string => {
-  return (Number(wei) / 1e18).toFixed(4);
-};
+// form/proposal options
+const proposalTypes = [
+  { title: 'Pause', value: 'PAUSE' },
+  { title: 'Unpause', value: 'UNPAUSE' },
+  { title: 'Add Signer', value: 'ADD_SIGNER' },
+  { title: 'Remove Signer', value: 'REMOVE_SIGNER' },
+  { title: 'Change Threshold', value: 'CHANGE_THRESHOLD' },
+];
 
-const getFunctionColor = (functionName?: string): string => {
-  const colors: Record<string, string> = {
-    transfer: 'blue',
-    proposeAddSigner: 'green',
-    proposeRemoveSigner: 'red',
-    proposeChangeThreshold: 'orange',
-    pause: 'red',
-    unpause: 'green',
-    execute: 'purple',
-  };
-  return colors[functionName || 'transfer'] || 'grey';
-};
+const newProposal = ref({
+  proposalType: null as string | null,
+  proposer: '',
+  theSigner: '',
+  signature: '',
+  address: '',
+  payload: '',
+  newThreshold: null as number | null,
+});
 
-const getStatusColor = (status: string): string => {
-  const colors: Record<string, string> = {
-    pending: 'warning',
-    executed: 'success',
-    rejected: 'error',
-  };
-  return colors[status] || 'grey';
-};
+// state
+const submitting = ref(false);
+const formValid = ref(false);
+const proposalForm = ref<any>(null);
+const walletLoading = ref(true);
 
-const showSnackbar = (text: string, color: string = 'success') => {
+const detailsDialog = ref(false);
+const selectedTransaction = ref<Transaction | null>(null);
+const signingTx = ref<number | null>(null);
+const executingTx = ref<number | null>(null);
+const executingProposal = ref<number | null>(null);
+const loading = ref(false);
+
+const pendingTransactions = ref<Transaction[]>([]);
+const proposals = ref<Proposal[]>([]);
+const loadingProposals = ref(false);
+const newProposalDialog = ref(false);
+
+const snackbar = ref({
+  show: false,
+  text: '',
+  color: 'success',
+});
+
+// snackbar helper
+const showSnackbar = (text: string, color = 'success') => {
   snackbar.value = { show: true, text, color };
 };
 
-// Actions
+// explorer link
+const viewOnExplorer = () => {
+  if (account.value) {
+    window.open(`${explorerURI}/address/${account.value}`, '_blank');
+  }
+};
+
+// load proposals
+const loadProposals = async () => {
+  loadingProposals.value = true;
+  try {
+    proposals.value = await fetchProposals(apiBaseURL);
+  } catch (err) {
+    console.error('Error loading proposals:', err);
+    showSnackbar('Failed to load proposals', 'error');
+  } finally {
+    loadingProposals.value = false;
+  }
+};
+
+// submit proposal
+const handleSubmitProposal = async () => {
+  if (!proposalForm.value?.validate()) return;
+
+  if (!account.value) {
+    showSnackbar('Please connect your wallet first', 'error');
+    return;
+  }
+
+  submitting.value = true;
+  try {
+    console.log('Submitting proposal:', JSON.stringify(newProposal.value));
+    console.log('Sending to be signed by:', account.value);
+
+    if (!account.value) {
+      throw new Error('Wallet not connected'); // 👈 provider.value is null here
+    }
+
+    // Ensure MetaMask is connected
+    if (!account.value) {
+      try {
+        const accounts = await connect(); // triggers MetaMask popup
+        if (!accounts || accounts.length === 0) {
+          showSnackbar('Wallet not connected', 'error');
+          submitting.value = false;
+          return;
+        }
+      } catch (err) {
+        showSnackbar('Failed to connect wallet', 'error');
+        submitting.value = false;
+        return;
+      }
+    }
+
+    // prepare payload to sign (you can adjust what fields go into the signature)
+    const payload = {
+      proposalType: newProposal.value.proposalType,
+      theSigner: newProposal.value.theSigner,
+      newThreshold: newProposal.value.newThreshold,
+      targetAddress: newProposal.value.address,
+      proposer: account.value,      
+      timestamp: Date.now(),
+    };
+
+    // stringify for signing
+    const message = JSON.stringify(payload);
+
+    // ✍️ Sign the proposal with MetaMask
+    const signature = await signMessage(message);
+
+    // send to backend with signature
+    const proposalWithSig = {
+      ...newProposal.value,
+      proposer: account.value,
+      payload: message,
+      signature,
+    };
+
+    await submitProposal(apiBaseURL, proposalWithSig);
+    showSnackbar('Proposal submitted successfully!', 'success');
+    newProposalDialog.value = false;
+
+    // reset form
+    newProposal.value = {
+      proposalType: null,
+      proposer: '',
+      theSigner: '',
+      signature: '',
+      address: '',
+      payload: '',
+      newThreshold: null,
+    };
+
+    loadProposals();
+  } catch (err) {
+    console.error('Error submitting proposal:', err);
+    showSnackbar('Failed to submit proposal', 'error');
+  } finally {
+    submitting.value = false;
+  }
+};
+
+// refresh
+const refreshAll = () => {
+  console.log('Refreshing data...');
+  loadProposals();
+};
+
+// transaction actions
 const viewTransaction = (transaction: Transaction) => {
   selectedTransaction.value = transaction;
   detailsDialog.value = true;
 };
 
-const signTransaction = async (transaction: Transaction) => {
+const signProposal = async (transaction: Transaction) => {
   signingTx.value = transaction.id;
-
   try {
-    // TODO: Replace with actual API call to backend
     console.log('Signing transaction:', transaction.id);
-
-    // Simulate API call
     await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    // Mock successful signing
     transaction.signatures++;
     showSnackbar(`Transaction #${transaction.id} signed successfully!`);
-
-    if (detailsDialog.value) {
-      detailsDialog.value = false;
-    }
+    if (detailsDialog.value) detailsDialog.value = false;
   } catch (error) {
     console.error('Error signing transaction:', error);
     showSnackbar('Failed to sign transaction', 'error');
@@ -570,26 +777,17 @@ const signTransaction = async (transaction: Transaction) => {
   }
 };
 
-const executeTransaction = async (transaction: Transaction) => {
+const executeProposal = async (transaction: Transaction) => {
   executingTx.value = transaction.id;
-
   try {
-    // TODO: Replace with actual API call to backend
     console.log('Executing transaction:', transaction.id);
-
-    // Simulate API call
     await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    // Mock successful execution
     transaction.status = 'executed';
     showSnackbar(
       `Transaction #${transaction.id} executed successfully!`,
       'success'
     );
-
-    if (detailsDialog.value) {
-      detailsDialog.value = false;
-    }
+    if (detailsDialog.value) detailsDialog.value = false;
   } catch (error) {
     console.error('Error executing transaction:', error);
     showSnackbar('Failed to execute transaction', 'error');
@@ -598,8 +796,31 @@ const executeTransaction = async (transaction: Transaction) => {
   }
 };
 
-// Sort transactions by newest first
-// pendingTransactions.value.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+// lifecycle
+onMounted(async () => {
+  walletLoading.value = true;
+  try {
+    await connect(); // will do nothing if already connected
+  } catch (err) {
+    console.log('No previous wallet connection', err);
+  } finally {
+    walletLoading.value = false;
+  }
+
+  if (isConnected.value) {
+    loadProposals();
+    return;
+  }
+  console.log('wallet not connected yet');
+});
+
+// 🔑 Watch connection state: after connecting, refresh data
+watch(isConnected, (connected) => {
+  if (connected) {
+    console.log('wallet connected');
+    refreshAll();
+  }
+});
 </script>
 
 <style scoped>

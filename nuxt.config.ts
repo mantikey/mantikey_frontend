@@ -1,6 +1,13 @@
 import vuetify, { transformAssetUrls } from 'vite-plugin-vuetify';
 
 export default defineNuxtConfig({
+  runtimeConfig: {
+    public: {
+      apiBaseURL: process.env.API_BASE_URL ?? 'http://localhost:5000',
+      contractAddr: process.env.CONTRACT_ADDR,
+      explorerURI: process.env.EXPLORER_URI,
+    },
+  },
   app: {
     buildAssetsDir: '/something/',
     head: {
@@ -26,6 +33,7 @@ export default defineNuxtConfig({
   css: [
     'vuetify/lib/styles/main.sass',
     '@mdi/font/css/materialdesignicons.min.css',
+    '@/assets/css/main.css',
   ],
 
   // Vite configuration for Vuetify
