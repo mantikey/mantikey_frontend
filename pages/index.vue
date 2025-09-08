@@ -7,7 +7,7 @@
       <v-menu v-if="isConnected" offset-y>
         <template #activator="{ props }">
           <v-btn v-bind="props" variant="outlined" class="ma-5" color="primary">
-            {{ truncateAddress(account || '') }}
+            {{ truncateAddress(account || "") }}
           </v-btn>
         </template>
 
@@ -35,20 +35,27 @@
     </v-app-bar>
     <!-- ========== BODY ========== -->
 
-    <v-container
-      v-if="walletLoading"
-      class="d-flex align-center justify-center"
-      style="height: 70vh"
-    >
-      <v-progress-circular indeterminate color="primary"></v-progress-circular>
+    <v-container class="mt-5" v-if="alertText">
+      <v-alert type="error" variant="outlined" class="ma-5">
+        {{ alertText }}
+      </v-alert>
+    </v-container>
+
+    <v-container v-if="isConnected" class="mt-5">
+      <span style="color: black">Wallet Balance ETH: 123</span>
     </v-container>
 
     <v-container
-      v-if="!isConnected"
+      v-if="!isConnected || walletLoading"
       class="d-flex align-center justify-center"
       style="height: 70vh"
     >
       <h2 class="text-h5 font-weight-medium">Please connect your wallet</h2>
+      <v-progress-circular
+        class="ma-5"
+        indeterminate
+        color="primary"
+      ></v-progress-circular>
     </v-container>
 
     <v-container v-else fluid class="mt-10 pa-6">
@@ -113,7 +120,7 @@
                   :color="getFunctionColor(item.functionName)"
                   variant="outlined"
                 >
-                  {{ item.functionName || 'transfer' }}
+                  {{ item.functionName || "transfer" }}
                 </v-chip>
               </template>
 
@@ -281,12 +288,16 @@
 
               <!-- Proposer -->
               <template v-slot:item.theSigner="{ item }">
-                <code class="text-caption">{{ item.theSigner }}</code>
+                <code v-if="item.theSigner" class="text-caption">{{
+                  item.theSigner
+                }}</code>
               </template>
 
               <!-- Proposer -->
               <template v-slot:item.newThreshold="{ item }">
-                <code class="text-caption">{{ item.newThreshold }}</code>
+                <code v-if="item.newThreshold" class="text-caption">{{
+                  item.newThreshold
+                }}</code>
               </template>
 
               <!-- Status -->
@@ -370,7 +381,7 @@
               <v-list-item>
                 <v-list-item-title>Function</v-list-item-title>
                 <v-list-item-subtitle>{{
-                  selectedTransaction.functionName || 'transfer'
+                  selectedTransaction.functionName || "transfer"
                 }}</v-list-item-subtitle>
               </v-list-item>
 
@@ -541,24 +552,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
-import { useRuntimeConfig } from '#app';
-import { useMetaMask } from '../composables/useMetaMask';
-
+import { ref, onMounted, watch } from "vue";
+import { useRuntimeConfig } from "#app";
+import { useMetaMask } from "../composables/useMetaMask";
+import { ethers } from "ethers";
 // types
-import type { Transaction } from '../types/transaction';
-import type { Proposal } from '../types/proposal';
+import type { Transaction } from "../types/transaction";
+import type { Proposal } from "../types/proposal";
+import { MANTIKEY_ABI } from "../abi/mantikey_abi"; // Add this line
 
 // utils
-import { truncateAddress, formatEther } from '../utils/format';
-import { getFunctionColor, getStatusColor } from '../utils/colors';
-
-// services
-import { fetchProposals, submitProposal } from '../services/api';
+import { truncateAddress, formatEther } from "../utils/format";
+import { getFunctionColor, getStatusColor } from "../utils/colors";
+import { tryUseNuxtApp } from "nuxt/app";
 
 // Nuxt runtime config
 const config = useRuntimeConfig();
-const apiBaseURL = config.public.apiBaseURL;
+const contractAddr = config.public.contractAddr;
 const explorerURI = config.public.explorerURI;
 
 // metamask composable
@@ -574,47 +584,47 @@ const {
 
 // table headers
 const headers = [
-  { title: 'ID', key: 'id', sortable: true, width: '80px' },
-  { title: 'To', key: 'to', sortable: false, width: '140px' },
-  { title: 'Value', key: 'value', sortable: true, width: '120px' },
-  { title: 'Function', key: 'functionName', sortable: true, width: '120px' },
-  { title: 'Status', key: 'status', sortable: true, width: '100px' },
-  { title: 'Signatures', key: 'signatures', sortable: true, width: '100px' },
-  { title: 'Actions', key: 'actions', sortable: false, width: '200px' },
+  { title: "ID", key: "id", sortable: true, width: "80px" },
+  { title: "To", key: "to", sortable: false, width: "140px" },
+  { title: "Value", key: "value", sortable: true, width: "120px" },
+  { title: "Function", key: "functionName", sortable: true, width: "120px" },
+  { title: "Status", key: "status", sortable: true, width: "100px" },
+  { title: "Signatures", key: "signatures", sortable: true, width: "100px" },
+  { title: "Actions", key: "actions", sortable: false, width: "200px" },
 ];
 
 const proposalHeaders = [
-  { title: 'ID', key: 'id', sortable: true, width: '80px' },
-  { title: 'Type', key: 'proposalType', sortable: true, width: '140px' },
-  { title: 'Proposer', key: 'proposer', sortable: false, width: '200px' },
-  { title: 'The Signer', key: 'theSigner', sortable: false, width: '200px' },
+  { title: "ID", key: "id", sortable: true, width: "80px" },
+  { title: "Type", key: "proposalType", sortable: true, width: "140px" },
+  { title: "Proposer", key: "proposer", sortable: false, width: "200px" },
+  { title: "The Signer", key: "theSigner", sortable: false, width: "200px" },
   {
-    title: 'New Threshold',
-    key: 'newThreshold',
+    title: "New Threshold",
+    key: "newThreshold",
     sortable: false,
-    width: '200px',
+    width: "200px",
   },
-  { title: 'Status', key: 'status', sortable: true, width: '120px' },
-  { title: 'Created At', key: 'createdAt', sortable: true, width: '180px' },
-  { title: 'Action', key: 'action', sortable: true, width: '100px' },
+  { title: "Status", key: "status", sortable: true, width: "120px" },
+  { title: "Created At", key: "createdAt", sortable: true, width: "180px" },
+  { title: "Action", key: "action", sortable: true, width: "100px" },
 ];
 
 // form/proposal options
 const proposalTypes = [
-  { title: 'Pause', value: 'PAUSE' },
-  { title: 'Unpause', value: 'UNPAUSE' },
-  { title: 'Add Signer', value: 'ADD_SIGNER' },
-  { title: 'Remove Signer', value: 'REMOVE_SIGNER' },
-  { title: 'Change Threshold', value: 'CHANGE_THRESHOLD' },
+  { title: "Pause", value: "PAUSE" },
+  { title: "Unpause", value: "UNPAUSE" },
+  { title: "Add Signer", value: "ADD_SIGNER" },
+  { title: "Remove Signer", value: "REMOVE_SIGNER" },
+  { title: "Change Threshold", value: "CHANGE_THRESHOLD" },
 ];
 
 const newProposal = ref({
   proposalType: null as string | null,
-  proposer: '',
-  theSigner: '',
-  signature: '',
-  address: '',
-  payload: '',
+  proposer: "",
+  theSigner: "",
+  signature: "",
+  address: "",
+  payload: "",
   newThreshold: null as number | null,
 });
 
@@ -623,6 +633,12 @@ const submitting = ref(false);
 const formValid = ref(false);
 const proposalForm = ref<any>(null);
 const walletLoading = ref(true);
+const alertText = ref(null);
+
+const walletBalanceETH = ref<number | null>(null);
+const contractBalanceETH = ref(null);
+const contractBalanceUSDC = ref(null);
+const contractBalanceUSDT = ref(null);
 
 const detailsDialog = ref(false);
 const selectedTransaction = ref<Transaction | null>(null);
@@ -638,120 +654,332 @@ const newProposalDialog = ref(false);
 
 const snackbar = ref({
   show: false,
-  text: '',
-  color: 'success',
+  text: "",
+  color: "success",
 });
 
 // snackbar helper
-const showSnackbar = (text: string, color = 'success') => {
+const showSnackbar = (text: string, color = "success") => {
   snackbar.value = { show: true, text, color };
 };
 
 // explorer link
 const viewOnExplorer = () => {
   if (account.value) {
-    window.open(`${explorerURI}/address/${account.value}`, '_blank');
+    window.open(`${explorerURI}/address/${account.value}`, "_blank");
   }
 };
 
-// load proposals
-const loadProposals = async () => {
-  loadingProposals.value = true;
-  try {
-    proposals.value = await fetchProposals(apiBaseURL);
-  } catch (err) {
-    console.error('Error loading proposals:', err);
-    showSnackbar('Failed to load proposals', 'error');
-  } finally {
-    loadingProposals.value = false;
-  }
-};
-
-// submit proposal
+// Enhanced handleSubmitProposal function for your Vue component
 const handleSubmitProposal = async () => {
   if (!proposalForm.value?.validate()) return;
 
   if (!account.value) {
-    showSnackbar('Please connect your wallet first', 'error');
+    showSnackbar("Please connect your wallet first", "error");
     return;
   }
 
   submitting.value = true;
   try {
-    console.log('Submitting proposal:', JSON.stringify(newProposal.value));
-    console.log('Sending to be signed by:', account.value);
-
-    if (!account.value) {
-      throw new Error('Wallet not connected'); // 👈 provider.value is null here
+    // Get the provider from MetaMask
+    if (!window.ethereum) {
+      throw new Error("MetaMask not found");
     }
 
-    // Ensure MetaMask is connected
-    if (!account.value) {
-      try {
-        const accounts = await connect(); // triggers MetaMask popup
-        if (!accounts || accounts.length === 0) {
-          showSnackbar('Wallet not connected', 'error');
-          submitting.value = false;
-          return;
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+
+    const contract = new ethers.Contract(contractAddr, MANTIKEY_ABI, signer);
+
+    let tx;
+    const proposalType = newProposal.value.proposalType;
+
+    // Call the appropriate contract method based on proposal type
+    switch (proposalType) {
+      case "PAUSE":
+        tx = await contract.proposePause();
+        break;
+
+      case "UNPAUSE":
+        tx = await contract.proposeUnpause();
+        break;
+
+      case "ADD_SIGNER":
+        if (!newProposal.value.theSigner) {
+          throw new Error("Signer address is required");
         }
-      } catch (err) {
-        showSnackbar('Failed to connect wallet', 'error');
-        submitting.value = false;
-        return;
-      }
+
+        // Validate address format
+        if (!ethers.isAddress(newProposal.value.theSigner)) {
+          throw new Error("Invalid signer address format");
+        }
+
+        tx = await contract.proposeAddSigner(newProposal.value.theSigner);
+        break;
+
+      case "REMOVE_SIGNER":
+        if (!newProposal.value.theSigner) {
+          throw new Error("Signer address is required");
+        }
+
+        if (!ethers.isAddress(newProposal.value.theSigner)) {
+          throw new Error("Invalid signer address format");
+        }
+
+        tx = await contract.proposeRemoveSigner(newProposal.value.theSigner);
+        break;
+
+      case "CHANGE_THRESHOLD":
+        if (
+          !newProposal.value.newThreshold ||
+          newProposal.value.newThreshold < 1
+        ) {
+          throw new Error("New threshold must be at least 1");
+        }
+
+        tx = await contract.proposeChangeThreshold(
+          newProposal.value.newThreshold
+        );
+        break;
+
+      default:
+        throw new Error("Invalid proposal type");
     }
 
-    // prepare payload to sign (you can adjust what fields go into the signature)
-    const payload = {
-      proposalType: newProposal.value.proposalType,
-      theSigner: newProposal.value.theSigner,
-      newThreshold: newProposal.value.newThreshold,
-      targetAddress: newProposal.value.address,
-      proposer: account.value,      
-      timestamp: Date.now(),
-    };
+    // Wait for transaction confirmation
+    showSnackbar("Transaction submitted. Waiting for confirmation...", "info");
+    const receipt = await tx.wait();
 
-    // stringify for signing
-    const message = JSON.stringify(payload);
+    console.log("Proposal submitted successfully:", {
+      txHash: receipt.hash,
+      proposalType: proposalType,
+      blockNumber: receipt.blockNumber,
+    });
 
-    // ✍️ Sign the proposal with MetaMask
-    const signature = await signMessage(message);
+    showSnackbar(
+      `${proposalType
+        .toLowerCase()
+        .replace("_", " ")} proposal created successfully!`,
+      "success"
+    );
 
-    // send to backend with signature
-    const proposalWithSig = {
-      ...newProposal.value,
-      proposer: account.value,
-      payload: message,
-      signature,
-    };
-
-    await submitProposal(apiBaseURL, proposalWithSig);
-    showSnackbar('Proposal submitted successfully!', 'success');
+    // Close dialog and reset form
     newProposalDialog.value = false;
-
-    // reset form
     newProposal.value = {
       proposalType: null,
-      proposer: '',
-      theSigner: '',
-      signature: '',
-      address: '',
-      payload: '',
+      proposer: "",
+      theSigner: "",
+      signature: "",
+      address: "",
+      payload: "",
       newThreshold: null,
     };
 
-    loadProposals();
-  } catch (err) {
-    console.error('Error submitting proposal:', err);
-    showSnackbar('Failed to submit proposal', 'error');
+    // Refresh proposals list
+    await loadProposals();
+  } catch (error: any) {
+    console.error("Error submitting proposal:", error);
+
+    // Handle specific error messages
+    let errorMessage = "Failed to submit proposal";
+
+    if (error.code === "ACTION_REJECTED") {
+      errorMessage = "Transaction was rejected by user";
+    } else if (error.message.includes("Only signers")) {
+      errorMessage = "Only authorized signers can create proposals";
+    } else if (error.message.includes("Already a signer")) {
+      errorMessage = "Address is already a signer";
+    } else if (error.message.includes("Not a signer")) {
+      errorMessage = "Address is not a current signer";
+    } else if (error.message.includes("Threshold")) {
+      errorMessage = "Invalid threshold value";
+    } else if (error.reason) {
+      errorMessage = error.reason;
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+
+    showSnackbar(errorMessage, "error");
   } finally {
     submitting.value = false;
   }
 };
 
+// Enhanced loadProposals function to fetch from blockchain
+const loadProposals = async () => {
+  if (!account.value) {
+    console.log("No account connected, cannot load proposals");
+    return;
+  }
+
+  loadingProposals.value = true;
+  try {
+    if (!window.ethereum) {
+      throw new Error("MetaMask not found");
+    }
+
+    const provider = new ethers.BrowserProvider(window.ethereum);
+
+    const contract = new ethers.Contract(contractAddr, MANTIKEY_ABI, provider);
+
+    // Get proposal count
+    const count = Number(await contract.proposalCount());
+    console.log("Total proposals:", count);
+    const proposalList: Proposal[] = [];
+
+    // start from the last index and go back up to 10 items
+    const startIndex = Math.max(0, count - 10);
+
+    for (let i = count - 1; i >= startIndex; i--) {
+      try {
+        const [
+          pType,
+          target,
+          newThreshold,
+          votes,
+          executed,
+          deadline,
+          expired,
+        ] = await contract.getProposalInfo(i);
+
+        const hasUserVoted = await contract.hasVoted(i, account.value);
+
+        const proposalTypes = [
+          "ADD_SIGNER",
+          "REMOVE_SIGNER",
+          "CHANGE_THRESHOLD",
+          "PAUSE",
+          "UNPAUSE",
+        ];
+
+        // map to your table headers
+        const proposal = {
+          id: i,
+          proposalType: proposalTypes[pType] || "UNKNOWN",
+          proposer: "0x000000... (not available)", // unless contract exposes proposer
+          theSigner: target,
+          newThreshold: newThreshold.toString(),
+          status: executed ? "Executed" : expired ? "Expired" : "Active",
+          createdAt: new Date(Number(deadline) * 1000), // assign as Date object
+          action: hasUserVoted ? "Voted" : "Pending",
+        };
+
+        proposalList.push(proposal);
+      } catch (err) {
+        console.error(`Error fetching proposal ${i}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error("Error loading proposals:", err);
+    showSnackbar("Failed to load proposals from blockchain", "error");
+  } finally {
+    loadingProposals.value = false;
+  }
+};
+
+// Add vote function
+const voteOnProposal = async (proposal: Proposal) => {
+  if (!account.value) {
+    showSnackbar("Please connect your wallet first", "error");
+    return;
+  }
+
+  try {
+    const { ethers } = await import("ethers");
+
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+
+    const contractABI = [
+      "function vote(uint256 proposalId) external",
+      "function isSigner(address) view returns (bool)",
+    ];
+
+    const CONTRACT_ADDRESS = "0x..."; // Your contract address
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, signer);
+
+    // Verify user is a signer
+    const isSignerResult = await contract.isSigner(account.value);
+    if (!isSignerResult) {
+      throw new Error("Only signers can vote on proposals");
+    }
+
+    showSnackbar("Submitting vote...", "info");
+    const tx = await contract.vote(proposal.id);
+
+    await tx.wait();
+
+    showSnackbar(`Vote submitted for proposal #${proposal.id}`, "success");
+
+    // Refresh proposals
+    await loadProposals();
+  } catch (error: any) {
+    console.error("Error voting on proposal:", error);
+
+    let errorMessage = "Failed to vote on proposal";
+    if (error.code === "ACTION_REJECTED") {
+      errorMessage = "Transaction was rejected by user";
+    } else if (error.message.includes("already")) {
+      errorMessage = "You have already voted on this proposal";
+    } else if (error.message.includes("expired")) {
+      errorMessage = "This proposal has expired";
+    }
+
+    showSnackbar(errorMessage, "error");
+  }
+};
+
+// Add execute proposal function
+const executeProposal = async (proposal: Proposal) => {
+  if (!account.value) {
+    showSnackbar("Please connect your wallet first", "error");
+    return;
+  }
+
+  executingProposal.value = proposal.id;
+  try {
+    const { ethers } = await import("ethers");
+
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+
+    const contractABI = [
+      "function executeProposal(uint256 proposalId) external",
+    ];
+
+    const CONTRACT_ADDRESS = "0x..."; // Your contract address
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, signer);
+
+    showSnackbar("Executing proposal...", "info");
+    const tx = await contract.executeProposal(proposal.id);
+
+    await tx.wait();
+
+    showSnackbar(`Proposal #${proposal.id} executed successfully!`, "success");
+
+    // Refresh proposals
+    await loadProposals();
+  } catch (error: any) {
+    console.error("Error executing proposal:", error);
+
+    let errorMessage = "Failed to execute proposal";
+    if (error.code === "ACTION_REJECTED") {
+      errorMessage = "Transaction was rejected by user";
+    } else if (error.message.includes("not enough")) {
+      errorMessage = "Not enough votes to execute proposal";
+    } else if (error.message.includes("expired")) {
+      errorMessage = "This proposal has expired";
+    }
+
+    showSnackbar(errorMessage, "error");
+  } finally {
+    executingProposal.value = null;
+  }
+};
+
 // refresh
 const refreshAll = () => {
-  console.log('Refreshing data...');
+  console.log("Refreshing data...");
   loadProposals();
 };
 
@@ -764,35 +992,16 @@ const viewTransaction = (transaction: Transaction) => {
 const signProposal = async (transaction: Transaction) => {
   signingTx.value = transaction.id;
   try {
-    console.log('Signing transaction:', transaction.id);
+    console.log("Signing transaction:", transaction.id);
     await new Promise((resolve) => setTimeout(resolve, 2000));
     transaction.signatures++;
     showSnackbar(`Transaction #${transaction.id} signed successfully!`);
     if (detailsDialog.value) detailsDialog.value = false;
   } catch (error) {
-    console.error('Error signing transaction:', error);
-    showSnackbar('Failed to sign transaction', 'error');
+    console.error("Error signing transaction:", error);
+    showSnackbar("Failed to sign transaction", "error");
   } finally {
     signingTx.value = null;
-  }
-};
-
-const executeProposal = async (transaction: Transaction) => {
-  executingTx.value = transaction.id;
-  try {
-    console.log('Executing transaction:', transaction.id);
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    transaction.status = 'executed';
-    showSnackbar(
-      `Transaction #${transaction.id} executed successfully!`,
-      'success'
-    );
-    if (detailsDialog.value) detailsDialog.value = false;
-  } catch (error) {
-    console.error('Error executing transaction:', error);
-    showSnackbar('Failed to execute transaction', 'error');
-  } finally {
-    executingTx.value = null;
   }
 };
 
@@ -802,7 +1011,7 @@ onMounted(async () => {
   try {
     await connect(); // will do nothing if already connected
   } catch (err) {
-    console.log('No previous wallet connection', err);
+    console.log("No previous wallet connection", err);
   } finally {
     walletLoading.value = false;
   }
@@ -811,14 +1020,19 @@ onMounted(async () => {
     loadProposals();
     return;
   }
-  console.log('wallet not connected yet');
+  console.log("wallet not connected yet");
 });
 
 // 🔑 Watch connection state: after connecting, refresh data
 watch(isConnected, (connected) => {
   if (connected) {
-    console.log('wallet connected');
-    refreshAll();
+    console.log("wallet connected");
+    (async () => {
+      await getBalance();
+      walletBalanceETH.value = balance.value;
+      console.log("wallet balance", walletBalanceETH.value);
+      refreshAll();
+    })();
   }
 });
 </script>
