@@ -2,18 +2,43 @@
   <v-app>
     <v-app-bar flat scroll-behavior="hide">
       <h1 class="text-h4 ma-5">MantiKey</h1>
-      <v-spacer></v-spacer>
 
-      <v-menu v-if="isConnected" offset-y>
+      <v-menu open-on-hover v-if="isConnected" offset-y>
         <template #activator="{ props }">
-          <v-btn v-bind="props" variant="outlined" class="ma-5" color="primary">
-            {{ truncateAddress(account || "") }}
+          <v-btn
+            v-bind="props"
+            variant="outlined"
+            class="mt-5 mb-5 ml-3"
+            color="primary"
+          >
+            {{ truncateAddress(contractAddr || '') }}
           </v-btn>
         </template>
 
         <v-list>
-          <v-list-item @click="viewOnExplorer">
-            <v-list-item-title>View on Explorer</v-list-item-title>
+          <v-list-item @click="viewOnExplorer(contractAddr)">
+            <v-list-item-title>Open Contract on Explorer</v-list-item-title>
+          </v-list-item>
+        </v-list>
+      </v-menu>
+
+      <v-spacer></v-spacer>
+
+      <v-menu open-on-hover v-if="isConnected" offset-y>
+        <template #activator="{ props }">
+          <v-btn
+            v-bind="props"
+            variant="outlined"
+            class="mt-5 mb-5 ml-3"
+            color="primary"
+          >
+            {{ truncateAddress(account || '') }}
+          </v-btn>
+        </template>
+
+        <v-list>
+          <v-list-item @click="viewOnExplorer(account)">
+            <v-list-item-title>Open Wallet on Explorer</v-list-item-title>
           </v-list-item>
 
           <v-list-item @click="disconnect">
@@ -35,16 +60,6 @@
     </v-app-bar>
     <!-- ========== BODY ========== -->
 
-    <v-container class="mt-5" v-if="alertText">
-      <v-alert type="error" variant="outlined" class="ma-5">
-        {{ alertText }}
-      </v-alert>
-    </v-container>
-
-    <v-container v-if="isConnected" class="mt-5">
-      <span style="color: black">Wallet Balance ETH: 123</span>
-    </v-container>
-
     <v-container
       v-if="!isConnected || walletLoading"
       class="d-flex align-center justify-center"
@@ -59,6 +74,37 @@
     </v-container>
 
     <v-container v-else fluid class="mt-10 pa-6">
+      <v-row class="mt-5">
+        <v-col cols="12">
+          <v-alert
+            class="mt-5 mb-5"
+            v-if="alertText"
+            type="error"
+            variant="outlined"
+          >
+            {{ alertText }}
+          </v-alert>
+          <v-card>
+            <v-card-text
+              v-if="
+                contractBalanceETH !== undefined &&
+                contractBalanceUSDC !== undefined &&
+                contractBalanceUSDT !== undefined &&
+                walletBalanceETH !== undefined
+              "
+            >
+              Balances: {{ contractBalanceETH.toFixed(6) }} ETH |
+              {{ contractBalanceUSDC.toFixed(2) }} USDC |
+              {{ contractBalanceUSDT.toFixed(2) }} USDT
+              <br />
+              <span v-if="walletBalanceETH"
+                >Connected Wallet: {{ walletBalanceETH.toFixed(4) }} ETH</span
+              >
+            </v-card-text>
+          </v-card>
+        </v-col>
+      </v-row>
+
       <v-row class="mt-5">
         <v-col cols="12">
           <v-card>
@@ -120,7 +166,7 @@
                   :color="getFunctionColor(item.functionName)"
                   variant="outlined"
                 >
-                  {{ item.functionName || "transfer" }}
+                  {{ item.functionName || 'transfer' }}
                 </v-chip>
               </template>
 
@@ -232,7 +278,7 @@
           * ~~~~~~~~~~ Governance Proposals Table ~~~~~~~~~~~~
           */-->
 
-          <v-card>
+          <v-card class="mt-5">
             <v-card-title>
               <v-icon class="mr-2">mdi-file-document-outline</v-icon>
               Governance Proposals
@@ -274,16 +320,18 @@
                 </v-chip>
               </template>
 
+              <!-- Votes -->
+              <template v-slot:item.votes="{ item }">
+                <v-chip size="small">
+                  <kdb>{{ item.votes }}</kdb>
+                </v-chip>
+              </template>
+
               <!-- Proposal Type -->
               <template v-slot:item.proposalType="{ item }">
                 <v-chip size="small" color="indigo" variant="outlined">
                   {{ item.proposalType }}
                 </v-chip>
-              </template>
-
-              <!-- Proposer -->
-              <template v-slot:item.proposer="{ item }">
-                <code class="text-caption">{{ item.proposer }}</code>
               </template>
 
               <!-- Proposer -->
@@ -309,7 +357,16 @@
 
               <!-- Created At -->
               <template v-slot:item.createdAt="{ item }">
-                {{ new Date(item.createdAt).toLocaleString() }}
+                {{
+                  item.createdAt
+                    ? new Date(item.createdAt).toLocaleString()
+                    : 'N/A'
+                }}
+              </template>
+
+              <!-- Deadline At -->
+              <template v-slot:item.deadline="{ item }">
+                {{ item.deadline ? timeLeft(item.deadline) : 'N/A' }}
               </template>
 
               <!-- Actions -->
@@ -321,10 +378,10 @@
                     variant="flat"
                     :disabled="item.status === 'pending'"
                     :loading="executingProposal === item.id"
-                    @click="signProposal(item)"
+                    @click="voteProposal(item)"
                   >
                     <v-icon>mdi-pen</v-icon>
-                    Sign
+                    VOTE
                   </v-btn>
 
                   <v-btn
@@ -344,113 +401,6 @@
           </v-card>
         </v-col>
       </v-row>
-
-      <!-- Transaction Details Dialog -->
-      <v-dialog v-model="detailsDialog" max-width="800">
-        <v-card v-if="selectedTransaction">
-          <v-card-title class="d-flex align-center">
-            <v-icon class="mr-2">mdi-information-outline</v-icon>
-            Transaction Details - #{{ selectedTransaction.id }}
-            <v-spacer></v-spacer>
-            <v-btn
-              icon="mdi-close"
-              variant="text"
-              @click="detailsDialog = false"
-            ></v-btn>
-          </v-card-title>
-
-          <v-card-text>
-            <v-list density="compact">
-              <v-list-item>
-                <v-list-item-title>To Address</v-list-item-title>
-                <v-list-item-subtitle>
-                  <code>{{ selectedTransaction.to }}</code>
-                </v-list-item-subtitle>
-              </v-list-item>
-
-              <v-list-item>
-                <v-list-item-title>Value</v-list-item-title>
-                <v-list-item-subtitle
-                  >{{
-                    formatEther(selectedTransaction.value)
-                  }}
-                  ETH</v-list-item-subtitle
-                >
-              </v-list-item>
-
-              <v-list-item>
-                <v-list-item-title>Function</v-list-item-title>
-                <v-list-item-subtitle>{{
-                  selectedTransaction.functionName || "transfer"
-                }}</v-list-item-subtitle>
-              </v-list-item>
-
-              <v-list-item>
-                <v-list-item-title>Status</v-list-item-title>
-                <v-list-item-subtitle>
-                  <v-chip
-                    size="small"
-                    :color="getStatusColor(selectedTransaction.status)"
-                  >
-                    {{ selectedTransaction.status }}
-                  </v-chip>
-                </v-list-item-subtitle>
-              </v-list-item>
-
-              <v-list-item>
-                <v-list-item-title>Signatures</v-list-item-title>
-                <v-list-item-subtitle
-                  >{{ selectedTransaction.signatures }}/{{
-                    selectedTransaction.threshold
-                  }}</v-list-item-subtitle
-                >
-              </v-list-item>
-
-              <v-list-item>
-                <v-list-item-title>Transaction Data</v-list-item-title>
-                <v-list-item-subtitle>
-                  <v-textarea
-                    :model-value="selectedTransaction.data"
-                    readonly
-                    density="compact"
-                    rows="4"
-                    class="mt-2"
-                  ></v-textarea>
-                </v-list-item-subtitle>
-              </v-list-item>
-            </v-list>
-          </v-card-text>
-
-          <v-card-actions>
-            <v-spacer></v-spacer>
-            <v-btn
-              color="success"
-              variant="flat"
-              :disabled="
-                selectedTransaction.status !== 'pending' ||
-                selectedTransaction.signatures >= selectedTransaction.threshold
-              "
-              :loading="signingTx === selectedTransaction.id"
-              @click="signTransaction(selectedTransaction)"
-            >
-              <v-icon class="mr-2">mdi-pen</v-icon>
-              Sign Transaction
-            </v-btn>
-            <v-btn
-              v-if="
-                selectedTransaction.signatures >= selectedTransaction.threshold
-              "
-              color="orange"
-              variant="flat"
-              :loading="executingTx === selectedTransaction.id"
-              @click="executeTransaction(selectedTransaction)"
-            >
-              <v-icon class="mr-2">mdi-play</v-icon>
-              Execute
-            </v-btn>
-          </v-card-actions>
-        </v-card>
-      </v-dialog>
 
       <!-- New Proposal Dialog -->
       <v-dialog v-model="newProposalDialog" max-width="600">
@@ -536,6 +486,56 @@
         </v-card>
       </v-dialog>
 
+      <!-- Dialog component -->
+      <v-dialog v-model="txHashDialog" max-width="600">
+        <v-card>
+          <v-card-title class="d-flex justify-space-between align-center">
+            <span>Transaction Details</span>
+            <v-btn icon @click="txHashDialog = false">
+              <v-icon>mdi-close</v-icon>
+            </v-btn>
+          </v-card-title>
+
+          <v-divider></v-divider>
+
+          <v-card-text class="pa-4">
+            <div class="text-body-2 mb-2">Transaction Hash:</div>
+
+            <!-- Transaction hash with copy functionality -->
+            <div class="d-flex align-center mb-4">
+              <v-chip class="ma-2 pa-3">
+                {{ lastTxHash }}
+              </v-chip>
+            </div>
+          </v-card-text>
+
+          <v-divider></v-divider>
+
+          <v-card-actions class="pa-4">
+            <v-spacer></v-spacer>
+
+            <v-btn
+              color="primary"
+              @click="viewOnExplorer(lastTxHash)"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <v-icon start>mdi-open-in-new</v-icon>
+              View on Explorer
+            </v-btn>
+
+            <v-btn
+              class="ml-2 mr-2"
+              color="black"
+              variant="outlined"
+              @click="txHashDialog = false"
+            >
+              Close
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
       <!-- Snackbar for notifications -->
       <v-snackbar
         v-model="snackbar.show"
@@ -552,79 +552,74 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from "vue";
-import { useRuntimeConfig } from "#app";
-import { useMetaMask } from "../composables/useMetaMask";
-import { ethers } from "ethers";
+import { ref, onMounted, watch } from 'vue';
+import { useRuntimeConfig } from '#app';
+import { useMetaMask } from '../composables/useMetaMask';
+import { ethers } from 'ethers';
 // types
-import type { Transaction } from "../types/transaction";
-import type { Proposal } from "../types/proposal";
-import { MANTIKEY_ABI } from "../abi/mantikey_abi"; // Add this line
+import type { Transaction } from '../types/transaction';
+import type { Proposal } from '../types/proposal';
+import { MANTIKEY_ABI } from '../abi/mantikey_abi'; // Add this line
 
 // utils
-import { truncateAddress, formatEther } from "../utils/format";
-import { getFunctionColor, getStatusColor } from "../utils/colors";
-import { tryUseNuxtApp } from "nuxt/app";
+import { truncateAddress, formatEther, timeLeft } from '../utils/format';
+import { getFunctionColor, getStatusColor } from '../utils/colors';
 
 // Nuxt runtime config
 const config = useRuntimeConfig();
 const contractAddr = config.public.contractAddr;
 const explorerURI = config.public.explorerURI;
+const usdcContract = config.public.usdcContract;
+const usdtContract = config.public.usdtContract;
+const usdcDecimals = config.public.usdcDecimals;
+const usdtDecimals = config.public.usdtDecimals;
 
 // metamask composable
-const {
-  isConnected,
-  account,
-  balance,
-  connect,
-  disconnect,
-  getBalance,
-  signMessage,
-} = useMetaMask();
+const { isConnected, account, connect, disconnect, getBalance, signMessage } =
+  useMetaMask();
 
 // table headers
 const headers = [
-  { title: "ID", key: "id", sortable: true, width: "80px" },
-  { title: "To", key: "to", sortable: false, width: "140px" },
-  { title: "Value", key: "value", sortable: true, width: "120px" },
-  { title: "Function", key: "functionName", sortable: true, width: "120px" },
-  { title: "Status", key: "status", sortable: true, width: "100px" },
-  { title: "Signatures", key: "signatures", sortable: true, width: "100px" },
-  { title: "Actions", key: "actions", sortable: false, width: "200px" },
+  { title: 'ID', key: 'id', sortable: true, width: '80px' },
+  { title: 'To', key: 'to', sortable: false, width: '140px' },
+  { title: 'Value', key: 'value', sortable: true, width: '120px' },
+  { title: 'Function', key: 'functionName', sortable: true, width: '120px' },
+  { title: 'Status', key: 'status', sortable: true, width: '100px' },
+  { title: 'Signatures', key: 'signatures', sortable: true, width: '100px' },
+  { title: 'Actions', key: 'actions', sortable: false, width: '200px' },
 ];
 
 const proposalHeaders = [
-  { title: "ID", key: "id", sortable: true, width: "80px" },
-  { title: "Type", key: "proposalType", sortable: true, width: "140px" },
-  { title: "Proposer", key: "proposer", sortable: false, width: "200px" },
-  { title: "The Signer", key: "theSigner", sortable: false, width: "200px" },
+  { title: 'ID', key: 'id', sortable: true, width: '80px' },
+  { title: 'Votes', key: 'votes', sortable: true, width: '140px' },
+  { title: 'Type', key: 'proposalType', sortable: true, width: '140px' },
+  { title: 'The Signer', key: 'theSigner', sortable: false, width: '200px' },
   {
-    title: "New Threshold",
-    key: "newThreshold",
+    title: 'New Threshold',
+    key: 'newThreshold',
     sortable: false,
-    width: "200px",
+    width: '200px',
   },
-  { title: "Status", key: "status", sortable: true, width: "120px" },
-  { title: "Created At", key: "createdAt", sortable: true, width: "180px" },
-  { title: "Action", key: "action", sortable: true, width: "100px" },
+  { title: 'Status', key: 'status', sortable: true, width: '120px' },
+  { title: 'Deadline', key: 'deadline', sortable: true, width: '180px' },
+  { title: 'Created At', key: 'createdAt', sortable: true, width: '180px' },
+  { title: 'Action', key: 'action', sortable: true, width: '100px' },
 ];
 
 // form/proposal options
 const proposalTypes = [
-  { title: "Pause", value: "PAUSE" },
-  { title: "Unpause", value: "UNPAUSE" },
-  { title: "Add Signer", value: "ADD_SIGNER" },
-  { title: "Remove Signer", value: "REMOVE_SIGNER" },
-  { title: "Change Threshold", value: "CHANGE_THRESHOLD" },
+  { title: 'Add Signer', value: 'ADD_SIGNER' },
+  { title: 'Remove Signer', value: 'REMOVE_SIGNER' },
+  { title: 'Change Threshold', value: 'CHANGE_THRESHOLD' },
 ];
 
 const newProposal = ref({
   proposalType: null as string | null,
-  proposer: "",
-  theSigner: "",
-  signature: "",
-  address: "",
-  payload: "",
+  theSigner: '0x376d1c280197d6a6b2FBBA5E8D7f77fDEE999E06',
+  signature: '',
+  payload: '',
+  deadline: null as number | null,
+  createdAt: null as number | null,
   newThreshold: null as number | null,
 });
 
@@ -633,12 +628,12 @@ const submitting = ref(false);
 const formValid = ref(false);
 const proposalForm = ref<any>(null);
 const walletLoading = ref(true);
-const alertText = ref(null);
+const alertText = ref('');
 
-const walletBalanceETH = ref<number | null>(null);
-const contractBalanceETH = ref(null);
-const contractBalanceUSDC = ref(null);
-const contractBalanceUSDT = ref(null);
+const walletBalanceETH = ref<number>(0);
+const contractBalanceETH = ref<number>(0);
+const contractBalanceUSDC = ref<number>(0);
+const contractBalanceUSDT = ref<number>(0);
 
 const detailsDialog = ref(false);
 const selectedTransaction = ref<Transaction | null>(null);
@@ -651,23 +646,31 @@ const pendingTransactions = ref<Transaction[]>([]);
 const proposals = ref<Proposal[]>([]);
 const loadingProposals = ref(false);
 const newProposalDialog = ref(false);
+const txHashDialog = ref(false);
+const lastTxHash = ref('');
 
 const snackbar = ref({
   show: false,
-  text: "",
-  color: "success",
+  text: '',
+  color: 'success',
 });
 
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // snackbar helper
-const showSnackbar = (text: string, color = "success") => {
+const showSnackbar = (text: string, color = 'success') => {
   snackbar.value = { show: true, text, color };
 };
 
 // explorer link
-const viewOnExplorer = () => {
-  if (account.value) {
-    window.open(`${explorerURI}/address/${account.value}`, "_blank");
+const viewOnExplorer = (destination) => {
+  if (destination.length > 42) {
+    window.open(`${explorerURI}/tx/${destination}`, '_blank');
+    return;
   }
+  window.open(`${explorerURI}/address/${destination}`, '_blank');
 };
 
 // Enhanced handleSubmitProposal function for your Vue component
@@ -675,7 +678,7 @@ const handleSubmitProposal = async () => {
   if (!proposalForm.value?.validate()) return;
 
   if (!account.value) {
-    showSnackbar("Please connect your wallet first", "error");
+    showSnackbar('Please connect your wallet first', 'error');
     return;
   }
 
@@ -683,7 +686,7 @@ const handleSubmitProposal = async () => {
   try {
     // Get the provider from MetaMask
     if (!window.ethereum) {
-      throw new Error("MetaMask not found");
+      throw new Error('MetaMask not found');
     }
 
     const provider = new ethers.BrowserProvider(window.ethereum);
@@ -696,45 +699,45 @@ const handleSubmitProposal = async () => {
 
     // Call the appropriate contract method based on proposal type
     switch (proposalType) {
-      case "PAUSE":
+      case 'PAUSE':
         tx = await contract.proposePause();
         break;
 
-      case "UNPAUSE":
+      case 'UNPAUSE':
         tx = await contract.proposeUnpause();
         break;
 
-      case "ADD_SIGNER":
+      case 'ADD_SIGNER':
         if (!newProposal.value.theSigner) {
-          throw new Error("Signer address is required");
+          throw new Error('Signer address is required');
         }
 
         // Validate address format
         if (!ethers.isAddress(newProposal.value.theSigner)) {
-          throw new Error("Invalid signer address format");
+          throw new Error('Invalid signer address format');
         }
 
         tx = await contract.proposeAddSigner(newProposal.value.theSigner);
         break;
 
-      case "REMOVE_SIGNER":
+      case 'REMOVE_SIGNER':
         if (!newProposal.value.theSigner) {
-          throw new Error("Signer address is required");
+          throw new Error('Signer address is required');
         }
 
         if (!ethers.isAddress(newProposal.value.theSigner)) {
-          throw new Error("Invalid signer address format");
+          throw new Error('Invalid signer address format');
         }
 
         tx = await contract.proposeRemoveSigner(newProposal.value.theSigner);
         break;
 
-      case "CHANGE_THRESHOLD":
+      case 'CHANGE_THRESHOLD':
         if (
           !newProposal.value.newThreshold ||
           newProposal.value.newThreshold < 1
         ) {
-          throw new Error("New threshold must be at least 1");
+          throw new Error('New threshold must be at least 1');
         }
 
         tx = await contract.proposeChangeThreshold(
@@ -743,14 +746,17 @@ const handleSubmitProposal = async () => {
         break;
 
       default:
-        throw new Error("Invalid proposal type");
+        throw new Error('Invalid proposal type');
     }
 
     // Wait for transaction confirmation
-    showSnackbar("Transaction submitted. Waiting for confirmation...", "info");
+    showSnackbar('Transaction submitted. Waiting for confirmation...', 'info');
     const receipt = await tx.wait();
 
-    console.log("Proposal submitted successfully:", {
+    lastTxHash.value = receipt.hash;
+    txHashDialog.value = true;
+
+    console.log('Proposal submitted successfully:', {
       txHash: receipt.hash,
       proposalType: proposalType,
       blockNumber: receipt.blockNumber,
@@ -759,63 +765,111 @@ const handleSubmitProposal = async () => {
     showSnackbar(
       `${proposalType
         .toLowerCase()
-        .replace("_", " ")} proposal created successfully!`,
-      "success"
+        .replace('_', ' ')} proposal created successfully!`,
+      'success'
     );
 
     // Close dialog and reset form
     newProposalDialog.value = false;
+    txHashDialog;
     newProposal.value = {
       proposalType: null,
-      proposer: "",
-      theSigner: "",
-      signature: "",
-      address: "",
-      payload: "",
+      theSigner: '',
+      signature: '',
+      payload: '',
+      deadline: null,
       newThreshold: null,
     };
 
     // Refresh proposals list
     await loadProposals();
   } catch (error: any) {
-    console.error("Error submitting proposal:", error);
+    console.error('Error submitting proposal:', error);
 
     // Handle specific error messages
-    let errorMessage = "Failed to submit proposal";
+    let errorMessage = 'Failed to submit proposal';
 
-    if (error.code === "ACTION_REJECTED") {
-      errorMessage = "Transaction was rejected by user";
-    } else if (error.message.includes("Only signers")) {
-      errorMessage = "Only authorized signers can create proposals";
-    } else if (error.message.includes("Already a signer")) {
-      errorMessage = "Address is already a signer";
-    } else if (error.message.includes("Not a signer")) {
-      errorMessage = "Address is not a current signer";
-    } else if (error.message.includes("Threshold")) {
-      errorMessage = "Invalid threshold value";
+    if (error.code === 'ACTION_REJECTED') {
+      errorMessage = 'Transaction was rejected by user';
+    } else if (error.message.includes('Only signers')) {
+      errorMessage = 'Only authorized signers can create proposals';
+    } else if (error.message.includes('Already a signer')) {
+      errorMessage = 'Address is already a signer';
+    } else if (error.message.includes('Not a signer')) {
+      errorMessage = 'Address is not a current signer';
+    } else if (error.message.includes('Threshold')) {
+      errorMessage = 'Invalid threshold value';
     } else if (error.reason) {
       errorMessage = error.reason;
     } else if (error.message) {
       errorMessage = error.message;
     }
 
-    showSnackbar(errorMessage, "error");
+    showSnackbar(errorMessage, 'error');
   } finally {
     submitting.value = false;
+  }
+};
+
+const updateBalances = async () => {
+  console.log('Updating balances...');
+
+  // ERC20 ABI (simplified for balanceOf)
+  const ERC20_ABI = [
+    'function balanceOf(address) view returns (uint256)',
+    'function decimals() view returns (uint8)',
+  ];
+  try {
+    // Get the provider from MetaMask
+    if (!window.ethereum) {
+      console.error('MetaMask not found');
+      return;
+    }
+
+    walletBalanceETH.value = (await getBalance(account.value)) ?? 0;
+    console.log('wallet ETH balance', walletBalanceETH.value);
+    await sleep(500);
+    if (walletBalanceETH.value == 0) {
+      alertText.value =
+        'Your wallet balance is 0. You cannot interract with the contract';
+    }
+
+    contractBalanceETH.value = (await getBalance(contractAddr)) ?? 0;
+    console.log('contract ETH balance', contractBalanceETH.value);
+
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    //const signer = await provider.getSigner();
+
+    const contractUSDC = new ethers.Contract(usdcContract, ERC20_ABI, provider);
+    const contractUSDT = new ethers.Contract(usdtContract, ERC20_ABI, provider);
+
+    let balanceUSDCRaw = await contractUSDC.balanceOf(contractAddr);
+    contractBalanceUSDC.value = Number(
+      ethers.formatUnits(balanceUSDCRaw, Number(usdcDecimals))
+    );
+    console.log('contract USDC balance', contractBalanceUSDC.value);
+    await sleep(500);
+    let balanceUSDTRaw = await contractUSDT.balanceOf(contractAddr);
+    contractBalanceUSDT.value = Number(
+      ethers.formatUnits(balanceUSDTRaw, Number(usdtDecimals))
+    );
+    console.log('contract USDT balance', contractBalanceUSDT.value);
+  } catch (error) {
+    console.error(`Error getting token balances`, error);
   }
 };
 
 // Enhanced loadProposals function to fetch from blockchain
 const loadProposals = async () => {
   if (!account.value) {
-    console.log("No account connected, cannot load proposals");
+    console.log('No account connected, cannot load proposals');
     return;
   }
 
   loadingProposals.value = true;
   try {
     if (!window.ethereum) {
-      throw new Error("MetaMask not found");
+      throw new Error('MetaMask not found');
     }
 
     const provider = new ethers.BrowserProvider(window.ethereum);
@@ -823,8 +877,12 @@ const loadProposals = async () => {
     const contract = new ethers.Contract(contractAddr, MANTIKEY_ABI, provider);
 
     // Get proposal count
-    const count = Number(await contract.proposalCount());
-    console.log("Total proposals:", count);
+    let count = 0;
+    try {
+      count = Number(await contract.proposalCount());
+      console.log('Total proposals:', count);
+    } catch (e) {}
+
     const proposalList: Proposal[] = [];
 
     // start from the last index and go back up to 10 items
@@ -838,140 +896,101 @@ const loadProposals = async () => {
           newThreshold,
           votes,
           executed,
+          createdAt,
           deadline,
           expired,
         ] = await contract.getProposalInfo(i);
 
+        console.log(`proposal info #${i}:`, {
+          pType,
+          target,
+          newThreshold: newThreshold.toString(),
+          votes: votes.toString(),
+          executed,
+          createdAt: createdAt.toString(),
+          deadline: deadline.toString(),
+          expired,
+        });
+
         const hasUserVoted = await contract.hasVoted(i, account.value);
 
         const proposalTypes = [
-          "ADD_SIGNER",
-          "REMOVE_SIGNER",
-          "CHANGE_THRESHOLD",
-          "PAUSE",
-          "UNPAUSE",
+          'ADD SIGNER',
+          'REMOVE SIGNER',
+          'CHANGE THRESHOLD',
         ];
 
         // map to your table headers
         const proposal = {
           id: i,
-          proposalType: proposalTypes[pType] || "UNKNOWN",
-          proposer: "0x000000... (not available)", // unless contract exposes proposer
+          proposalType: proposalTypes[pType] || 'UNKNOWN',
           theSigner: target,
           newThreshold: newThreshold.toString(),
-          status: executed ? "Executed" : expired ? "Expired" : "Active",
-          createdAt: new Date(Number(deadline) * 1000), // assign as Date object
-          action: hasUserVoted ? "Voted" : "Pending",
+          status: executed ? 'Executed' : expired ? 'Expired' : 'Active',
+          createdAt: new Date(Number(createdAt) * 1000), // assign as Date object
+          action: hasUserVoted ? 'Voted' : 'Pending',
+          votes: Number(votes),
+          deadline: new Date(Number(deadline) * 1000), // assign as Date object,
+          executed: executed,
         };
 
         proposalList.push(proposal);
       } catch (err) {
         console.error(`Error fetching proposal ${i}:`, err);
       }
+      proposals.value = proposalList;
     }
   } catch (err) {
-    console.error("Error loading proposals:", err);
-    showSnackbar("Failed to load proposals from blockchain", "error");
+    console.error('Error loading proposals:', err);
+    showSnackbar('Failed to load proposals from blockchain', 'error');
   } finally {
     loadingProposals.value = false;
-  }
-};
-
-// Add vote function
-const voteOnProposal = async (proposal: Proposal) => {
-  if (!account.value) {
-    showSnackbar("Please connect your wallet first", "error");
-    return;
-  }
-
-  try {
-    const { ethers } = await import("ethers");
-
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
-
-    const contractABI = [
-      "function vote(uint256 proposalId) external",
-      "function isSigner(address) view returns (bool)",
-    ];
-
-    const CONTRACT_ADDRESS = "0x..."; // Your contract address
-    const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, signer);
-
-    // Verify user is a signer
-    const isSignerResult = await contract.isSigner(account.value);
-    if (!isSignerResult) {
-      throw new Error("Only signers can vote on proposals");
-    }
-
-    showSnackbar("Submitting vote...", "info");
-    const tx = await contract.vote(proposal.id);
-
-    await tx.wait();
-
-    showSnackbar(`Vote submitted for proposal #${proposal.id}`, "success");
-
-    // Refresh proposals
-    await loadProposals();
-  } catch (error: any) {
-    console.error("Error voting on proposal:", error);
-
-    let errorMessage = "Failed to vote on proposal";
-    if (error.code === "ACTION_REJECTED") {
-      errorMessage = "Transaction was rejected by user";
-    } else if (error.message.includes("already")) {
-      errorMessage = "You have already voted on this proposal";
-    } else if (error.message.includes("expired")) {
-      errorMessage = "This proposal has expired";
-    }
-
-    showSnackbar(errorMessage, "error");
   }
 };
 
 // Add execute proposal function
 const executeProposal = async (proposal: Proposal) => {
   if (!account.value) {
-    showSnackbar("Please connect your wallet first", "error");
+    showSnackbar('Please connect your wallet first', 'error');
     return;
   }
 
   executingProposal.value = proposal.id;
   try {
-    const { ethers } = await import("ethers");
+    const { ethers } = await import('ethers');
 
     const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
 
     const contractABI = [
-      "function executeProposal(uint256 proposalId) external",
+      'function executeProposal(uint256 proposalId) external',
     ];
 
-    const CONTRACT_ADDRESS = "0x..."; // Your contract address
+    const CONTRACT_ADDRESS = '0x...'; // Your contract address
     const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, signer);
 
-    showSnackbar("Executing proposal...", "info");
+    showSnackbar('Executing proposal...', 'info');
     const tx = await contract.executeProposal(proposal.id);
 
     await tx.wait();
 
-    showSnackbar(`Proposal #${proposal.id} executed successfully!`, "success");
+    showSnackbar(`Proposal #${proposal.id} executed successfully!`, 'success');
 
     // Refresh proposals
     await loadProposals();
   } catch (error: any) {
-    console.error("Error executing proposal:", error);
+    console.error('Error executing proposal:', error);
 
-    let errorMessage = "Failed to execute proposal";
-    if (error.code === "ACTION_REJECTED") {
-      errorMessage = "Transaction was rejected by user";
-    } else if (error.message.includes("not enough")) {
-      errorMessage = "Not enough votes to execute proposal";
-    } else if (error.message.includes("expired")) {
-      errorMessage = "This proposal has expired";
+    let errorMessage = 'Failed to execute proposal';
+    if (error.code === 'ACTION_REJECTED') {
+      errorMessage = 'Transaction was rejected by user';
+    } else if (error.message.includes('not enough')) {
+      errorMessage = 'Not enough votes to execute proposal';
+    } else if (error.message.includes('expired')) {
+      errorMessage = 'This proposal has expired';
     }
 
-    showSnackbar(errorMessage, "error");
+    showSnackbar(errorMessage, 'error');
   } finally {
     executingProposal.value = null;
   }
@@ -979,7 +998,9 @@ const executeProposal = async (proposal: Proposal) => {
 
 // refresh
 const refreshAll = () => {
-  console.log("Refreshing data...");
+  console.log('Refreshing data...');
+  alertText.value = '';
+  updateBalances();
   loadProposals();
 };
 
@@ -989,19 +1010,41 @@ const viewTransaction = (transaction: Transaction) => {
   detailsDialog.value = true;
 };
 
-const signProposal = async (transaction: Transaction) => {
-  signingTx.value = transaction.id;
+const voteProposal = async (proposal: Proposal) => {
+  if (!account.value) {
+    showSnackbar('Please connect your wallet first', 'error');
+    return;
+  }
+
+  executingProposal.value = proposal.id;
   try {
-    console.log("Signing transaction:", transaction.id);
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    transaction.signatures++;
-    showSnackbar(`Transaction #${transaction.id} signed successfully!`);
-    if (detailsDialog.value) detailsDialog.value = false;
-  } catch (error) {
-    console.error("Error signing transaction:", error);
-    showSnackbar("Failed to sign transaction", "error");
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const contractABI = ['function vote(uint256 proposalId) external'];
+    const contract = new ethers.Contract(contractAddr, contractABI, signer);
+
+    showSnackbar('Please check your wallet for confirmation', 'info');
+    const tx = await contract.vote(proposal.id);
+    const receipt = await tx.wait();
+    lastTxHash.value = receipt.hash;
+    txHashDialog.value = true;
+
+    showSnackbar(`Proposal #${proposal.id} voted successfully!`, 'success');
+  } catch (error: any) {
+    console.error('Error executing proposal:', error);
+
+    let errorMessage = 'Failed to execute proposal';
+    if (error.code === 'ACTION_REJECTED') {
+      errorMessage = 'Transaction was rejected by user';
+    } else if (error.message.includes('not enough')) {
+      errorMessage = 'Not enough votes to execute proposal';
+    } else if (error.message.includes('expired')) {
+      errorMessage = 'This proposal has expired';
+    }
+
+    showSnackbar(errorMessage, 'error');
   } finally {
-    signingTx.value = null;
+    executingProposal.value = null;
   }
 };
 
@@ -1011,28 +1054,22 @@ onMounted(async () => {
   try {
     await connect(); // will do nothing if already connected
   } catch (err) {
-    console.log("No previous wallet connection", err);
+    console.log('No previous wallet connection', err);
   } finally {
     walletLoading.value = false;
   }
 
-  if (isConnected.value) {
-    loadProposals();
+  if (!isConnected.value) {
+    console.log('wallet not connected yet');
     return;
   }
-  console.log("wallet not connected yet");
 });
 
 // 🔑 Watch connection state: after connecting, refresh data
 watch(isConnected, (connected) => {
   if (connected) {
-    console.log("wallet connected");
-    (async () => {
-      await getBalance();
-      walletBalanceETH.value = balance.value;
-      console.log("wallet balance", walletBalanceETH.value);
-      refreshAll();
-    })();
+    console.log('wallet connected');
+    refreshAll();
   }
 });
 </script>

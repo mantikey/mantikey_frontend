@@ -3,7 +3,6 @@ import { MetaMaskSDK, type SDKProvider } from '@metamask/sdk';
 
 const isConnected = ref(false);
 const account = ref<string | null>(null);
-const balance = ref<number | null>(null);
 const provider = ref<SDKProvider | null>(null);
 
 let MMSDK: MetaMaskSDK | null = null;
@@ -71,17 +70,16 @@ export function useMetaMask() {
     }
     isConnected.value = false;
     account.value = null;
-    balance.value = null;
   };
 
-  const getBalance = async () => {
-    if (!account.value || !provider.value) return;
+  const getBalance = async (address) => {
+    if (!address || !provider.value) return;
     const result = await provider.value.request({
       method: 'eth_getBalance',
-      params: [account.value, 'latest'],
+      params: [address, 'latest'],
     });
     const decimal = BigInt(result as string);
-    balance.value = Number(decimal) / 1e18;
+    return Number(decimal) / 1e18;
   };
 
   /**
@@ -111,7 +109,6 @@ export function useMetaMask() {
   return {
     isConnected,
     account,
-    balance,
     connect,
     disconnect,
     getBalance,
