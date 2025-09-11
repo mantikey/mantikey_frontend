@@ -1,6 +1,12 @@
 ## MantiKey Frontend
 
-sepolia contract: [0x4f507d7cF616Ea86fC0520568D446AF9099edF7F](https://sepolia.etherscan.io/address/0x4f507d7cf616ea86fc0520568d446af9099edf7f)
+sepolia contract: [0x642428Fb30F15aF591059619828d81bC40ada874](https://sepolia.etherscan.io/address/0x642428Fb30F15aF591059619828d81bC40ada874)
+
+### TODOs:
+
+- show voting / execute when appropriate
+- reload the proposals after tx dialog close in 2-3 seconds
+- make it mobile friendly
 
 ### Build
 

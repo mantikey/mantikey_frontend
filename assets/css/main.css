@@ -2,3 +2,8 @@
 /* Add global styles here */
 .v-toolbar {
 }
+
+.balance-chip-compact {
+  font-family: 'Courier New', Consolas, monospace;
+  font-size: 0.875rem;
+}

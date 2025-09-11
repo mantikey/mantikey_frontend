@@ -1,7 +1,17 @@
 <template>
   <v-app>
-    <v-app-bar flat scroll-behavior="hide">
-      <h1 class="text-h4 ma-5">MantiKey</h1>
+    <v-app-bar flat scroll-behavior="hide" color="#333">
+      <div class="d-flex align-center">
+        <v-img
+          src="/images/mantikey_logo.png"
+          alt="MantiKey Logo"
+          height="60"
+          width="60"
+          contain
+          class="ml-5 mt-5 mb-5"
+        />
+        <span class="text-h5 ml-1 font-weight-bold">MantiKey</span>
+      </div>
 
       <v-menu open-on-hover v-if="isConnected" offset-y>
         <template #activator="{ props }">
@@ -9,7 +19,7 @@
             v-bind="props"
             variant="outlined"
             class="mt-5 mb-5 ml-3"
-            color="primary"
+            color="blue lighten-5"
           >
             {{ truncateAddress(contractAddr || '') }}
           </v-btn>
@@ -30,7 +40,7 @@
             v-bind="props"
             variant="outlined"
             class="mt-5 mb-5 ml-3"
-            color="primary"
+            color="blue lighten-5"
           >
             {{ truncateAddress(account || '') }}
           </v-btn>
@@ -50,7 +60,7 @@
       <v-btn
         v-else
         variant="flat"
-        color="primary"
+        color="blue lighten-5"
         class="ma-5"
         @click="connect"
       >
@@ -85,21 +95,90 @@
             {{ alertText }}
           </v-alert>
           <v-card>
-            <v-card-text
-              v-if="
-                contractBalanceETH !== undefined &&
-                contractBalanceUSDC !== undefined &&
-                contractBalanceUSDT !== undefined &&
-                walletBalanceETH !== undefined
-              "
-            >
-              Balances: {{ contractBalanceETH.toFixed(6) }} ETH |
-              {{ contractBalanceUSDC.toFixed(2) }} USDC |
-              {{ contractBalanceUSDT.toFixed(2) }} USDT
-              <br />
-              <span v-if="walletBalanceETH"
-                >Connected Wallet: {{ walletBalanceETH.toFixed(4) }} ETH</span
+            <v-card-text>
+              <div
+                v-if="signers && signers.length > 0"
+                class="d-flex align-center flex-wrap gap-2"
               >
+                <div class="d-flex align-center">
+                  <v-icon color="primary" size="small" class="me-1"
+                    >mdi-account-group</v-icon
+                  >
+                  <span class="text-body-2 font-weight-medium me-2"
+                    >Signers:</span
+                  >
+                </div>
+
+                <v-chip
+                  v-for="signer in signers"
+                  :key="signer"
+                  color="primary"
+                  variant="outlined"
+                  @click="viewOnExplorer(signer)"
+                  size="small"
+                  class="font-mono ml-1 mr-1"
+                >
+                  {{ truncateAddress(signer) }}
+                  <v-tooltip activator="parent" location="top">
+                    {{ signer }}
+                  </v-tooltip>
+                </v-chip>
+
+                <v-divider vertical class="mx-2"></v-divider>
+
+                <div class="d-flex align-center">
+                  <v-icon color="success" size="small" class="me-1"
+                    >mdi-shield-check</v-icon
+                  >
+                  <span class="text-body-2">
+                    <strong>{{ threshold }}</strong
+                    >/<strong>{{ signers.length }}</strong> required
+                  </span>
+                </div>
+              </div>
+            </v-card-text>
+            <v-card-text>
+              <div class="d-flex align-center mb-2">
+                <v-icon color="primary" size="small" class="me-1"
+                  >mdi-safe</v-icon
+                >
+                <span class="text-body-2 font-weight-medium"
+                  >Contract Balances :</span
+                ><v-btn
+                  icon="mdi-refresh"
+                  variant="text"
+                  size="small"
+                  :loading="loading"
+                  @click="updateBalances"
+                ></v-btn>
+
+                <v-chip
+                  v-if="contractBalanceETH !== undefined"
+                  color="blue"
+                  variant="outlined"
+                  class="balance-chip-compact ml-2"
+                >
+                  {{ contractBalanceETH.toFixed(6) }} ETH
+                </v-chip>
+
+                <v-chip
+                  v-if="contractBalanceUSDC !== undefined"
+                  color="green"
+                  variant="outlined"
+                  class="balance-chip-compact ml-2"
+                >
+                  {{ contractBalanceUSDC.toFixed(2) }} USDC
+                </v-chip>
+
+                <v-chip
+                  v-if="contractBalanceUSDT !== undefined"
+                  color="teal"
+                  variant="outlined"
+                  class="balance-chip-compact ml-2"
+                >
+                  {{ contractBalanceUSDT.toFixed(2) }} USDT
+                </v-chip>
+              </div>
             </v-card-text>
           </v-card>
         </v-col>
@@ -142,7 +221,7 @@
               <!-- Transaction ID -->
               <template v-slot:item.id="{ item }">
                 <v-chip size="small" color="blue" variant="outlined">
-                  #{{ item.id }}
+                  {{ item.id }}
                 </v-chip>
               </template>
 
@@ -323,8 +402,17 @@
               <!-- Votes -->
               <template v-slot:item.votes="{ item }">
                 <v-chip size="small">
-                  <kdb>{{ item.votes }}</kdb>
+                  <kbd>{{ item.votes }} / {{ threshold }}</kbd>
                 </v-chip>
+              </template>
+
+              <!-- hasVoted Type -->
+              <template v-slot:item.hasVoted="{ item }">
+                <v-icon
+                  :color="item.hasVoted ? 'green' : 'red'"
+                  :icon="item.hasVoted ? 'mdi-check' : 'mdi-close'"
+                  size="large"
+                />
               </template>
 
               <!-- Proposal Type -->
@@ -371,11 +459,12 @@
 
               <!-- Actions -->
               <template v-slot:item.action="{ item }">
-                <div class="d-flex ga-2">
+                <div class="d-flex ga-2" v-if="!item.executed">
                   <v-btn
                     size="small"
                     color="success"
                     variant="flat"
+                    v-if="!item.hasVoted"
                     :disabled="item.status === 'pending'"
                     :loading="executingProposal === item.id"
                     @click="voteProposal(item)"
@@ -385,6 +474,7 @@
                   </v-btn>
 
                   <v-btn
+                    v-if="item.votes >= threshold"
                     size="small"
                     color="orange"
                     variant="flat"
@@ -592,6 +682,7 @@ const headers = [
 const proposalHeaders = [
   { title: 'ID', key: 'id', sortable: true, width: '80px' },
   { title: 'Votes', key: 'votes', sortable: true, width: '140px' },
+  { title: 'Voted', key: 'hasVoted', sortable: false, width: '120px' },
   { title: 'Type', key: 'proposalType', sortable: true, width: '140px' },
   { title: 'The Signer', key: 'theSigner', sortable: false, width: '200px' },
   {
@@ -600,6 +691,7 @@ const proposalHeaders = [
     sortable: false,
     width: '200px',
   },
+
   { title: 'Status', key: 'status', sortable: true, width: '120px' },
   { title: 'Deadline', key: 'deadline', sortable: true, width: '180px' },
   { title: 'Created At', key: 'createdAt', sortable: true, width: '180px' },
@@ -629,6 +721,10 @@ const formValid = ref(false);
 const proposalForm = ref<any>(null);
 const walletLoading = ref(true);
 const alertText = ref('');
+
+// contract data
+const signers = ref<Array<string>>([]); //signers are addresses
+const threshold = ref<number>(0);
 
 const walletBalanceETH = ref<number>(0);
 const contractBalanceETH = ref<number>(0);
@@ -776,13 +872,11 @@ const handleSubmitProposal = async () => {
       proposalType: null,
       theSigner: '',
       signature: '',
+      createdAt: null,
       payload: '',
       deadline: null,
       newThreshold: null,
     };
-
-    // Refresh proposals list
-    await loadProposals();
   } catch (error: any) {
     console.error('Error submitting proposal:', error);
 
@@ -808,6 +902,25 @@ const handleSubmitProposal = async () => {
     showSnackbar(errorMessage, 'error');
   } finally {
     submitting.value = false;
+  }
+};
+
+const updateContractData = async () => {
+  console.log('Updating contract data...');
+  try {
+    if (!window.ethereum) {
+      throw new Error('MetaMask not found');
+    }
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const contract = new ethers.Contract(contractAddr, MANTIKEY_ABI, provider);
+    signers.value = await contract.getAllSigners();
+    console.log('Contract signers:', signers.value);
+    await sleep(500);
+    threshold.value = await contract.threshold();
+    console.log('Contract threshold:', threshold.value);
+    await sleep(500);
+  } catch (error) {
+    console.error(`Error updating contract data`, error);
   }
 };
 
@@ -928,7 +1041,7 @@ const loadProposals = async () => {
           newThreshold: newThreshold.toString(),
           status: executed ? 'Executed' : expired ? 'Expired' : 'Active',
           createdAt: new Date(Number(createdAt) * 1000), // assign as Date object
-          action: hasUserVoted ? 'Voted' : 'Pending',
+          hasVoted: hasUserVoted,
           votes: Number(votes),
           deadline: new Date(Number(deadline) * 1000), // assign as Date object,
           executed: executed,
@@ -938,8 +1051,8 @@ const loadProposals = async () => {
       } catch (err) {
         console.error(`Error fetching proposal ${i}:`, err);
       }
-      proposals.value = proposalList;
     }
+    proposals.value = proposalList;
   } catch (err) {
     console.error('Error loading proposals:', err);
     showSnackbar('Failed to load proposals from blockchain', 'error');
@@ -961,23 +1074,15 @@ const executeProposal = async (proposal: Proposal) => {
 
     const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
+    const contract = new ethers.Contract(contractAddr, MANTIKEY_ABI, signer);
 
-    const contractABI = [
-      'function executeProposal(uint256 proposalId) external',
-    ];
-
-    const CONTRACT_ADDRESS = '0x...'; // Your contract address
-    const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, signer);
-
-    showSnackbar('Executing proposal...', 'info');
+    showSnackbar('Please check your wallet for confirmation', 'info');
     const tx = await contract.executeProposal(proposal.id);
-
-    await tx.wait();
+    const receipt = await tx.wait();
+    lastTxHash.value = receipt.hash;
+    txHashDialog.value = true;
 
     showSnackbar(`Proposal #${proposal.id} executed successfully!`, 'success');
-
-    // Refresh proposals
-    await loadProposals();
   } catch (error: any) {
     console.error('Error executing proposal:', error);
 
@@ -1000,6 +1105,7 @@ const executeProposal = async (proposal: Proposal) => {
 const refreshAll = () => {
   console.log('Refreshing data...');
   alertText.value = '';
+  updateContractData();
   updateBalances();
   loadProposals();
 };
@@ -1028,8 +1134,6 @@ const voteProposal = async (proposal: Proposal) => {
     const receipt = await tx.wait();
     lastTxHash.value = receipt.hash;
     txHashDialog.value = true;
-
-    showSnackbar(`Proposal #${proposal.id} voted successfully!`, 'success');
   } catch (error: any) {
     console.error('Error executing proposal:', error);
 
@@ -1040,12 +1144,15 @@ const voteProposal = async (proposal: Proposal) => {
       errorMessage = 'Not enough votes to execute proposal';
     } else if (error.message.includes('expired')) {
       errorMessage = 'This proposal has expired';
+    } else if (error.message.includes('already')) {
+      errorMessage = 'You already voted this proposal';
     }
 
     showSnackbar(errorMessage, 'error');
-  } finally {
-    executingProposal.value = null;
+    return;
   }
+  showSnackbar(`Proposal #${proposal.id} voted successfully!`, 'success');
+  executingProposal.value = null;
 };
 
 // lifecycle

@@ -13,14 +13,12 @@ export const getFunctionColor = (functionName?: string): string => {
 
 export const getStatusColor = (status: string): string => {
   const colors: Record<string, string> = {
-    pending: 'warning',
-    executed: 'success',
+    Pending: 'warning',
+    Active: 'info',
     rejected: 'error',
-    APPROVED: 'success',
-    REJECTED: 'error',
-    EXECUTED: 'success',
-    CANCELLED: 'grey',
-    EXPIRED: 'orange',
+    Executed: 'success',
+    Canceled: 'grey',
+    Expired: 'orange',
   };
   return colors[status] || 'grey';
 };

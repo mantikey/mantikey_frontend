@@ -1,7 +1,11 @@
 export const MANTIKEY_ABI = [
   {
     inputs: [
-      { internalType: 'address[3]', name: 'signers', type: 'address[3]' },
+      {
+        internalType: 'address[3]',
+        name: 'initialSigners',
+        type: 'address[3]',
+      },
       { internalType: 'uint256', name: 'initialThreshold', type: 'uint256' },
     ],
     stateMutability: 'nonpayable',
@@ -143,6 +147,13 @@ export const MANTIKEY_ABI = [
     type: 'function',
   },
   {
+    inputs: [],
+    name: 'getAllSigners',
+    outputs: [{ internalType: 'address[]', name: '', type: 'address[]' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
     inputs: [{ internalType: 'uint256', name: 'proposalId', type: 'uint256' }],
     name: 'getProposalInfo',
     outputs: [
@@ -250,6 +261,13 @@ export const MANTIKEY_ABI = [
     inputs: [],
     name: 'signerCount',
     outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    name: 'signers',
+    outputs: [{ internalType: 'address', name: '', type: 'address' }],
     stateMutability: 'view',
     type: 'function',
   },
