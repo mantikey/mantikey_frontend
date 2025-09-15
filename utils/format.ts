@@ -4,14 +4,28 @@ export const truncateAddress = (address: string): string =>
 export const formatEther = (wei: bigint): string =>
   (Number(wei) / 1e18).toFixed(4);
 
-export const timeLeft = (deadline: Date): string => {
-  const now = new Date().getTime();
-  const diff = deadline.getTime() - now;
+// Relative time function (like "2 hours ago" or "in 3 days")
+export const relativeTime = (date: Date): string => {
+  const now = Number(new Date());
+  const diff = new Date(date).getTime() - now;
+  const absDiff = Math.abs(diff);
+  const isPast = diff < 0;
 
-  if (diff <= 0) return 'Expired';
+  const days = Math.floor(absDiff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((absDiff / (1000 * 60 * 60)) % 24);
+  const minutes = Math.floor((absDiff / (1000 * 60)) % 60);
 
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+  let timeStr = '';
+  if (days > 0) {
+    timeStr = hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  } else if (hours > 0) {
+    timeStr = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  } else if (minutes > 0) {
+    timeStr = `${minutes}m`;
+  } else {
+    timeStr = 'now';
+  }
 
-  return `in ${days}d ${hours}h`;
+  if (timeStr === 'now') return 'now';
+  return isPast ? `${timeStr} ago` : `in ${timeStr}`;
 };

@@ -1,9 +1,11 @@
 import vuetify, { transformAssetUrls } from 'vite-plugin-vuetify';
+import { defineNuxtConfig } from 'nuxt/config';
 
 export default defineNuxtConfig({
   runtimeConfig: {
     public: {
-      contractAddr: process.env.CONTRACT_ADDR,
+      backendURI: process.env.BACKEND_URI,
+      contractAddress: process.env.CONTRACT_ADDRESS,
       explorerURI: process.env.EXPLORER_URI,
       usdcContract: process.env.USDC_CONTRACT,
       usdtContract: process.env.USDT_CONTRACT,

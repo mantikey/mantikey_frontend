@@ -21,12 +21,12 @@
             class="mt-5 mb-5 ml-3"
             color="blue lighten-5"
           >
-            {{ truncateAddress(contractAddr || '') }}
+            {{ truncateAddress(contractAddress || '') }}
           </v-btn>
         </template>
 
         <v-list>
-          <v-list-item @click="viewOnExplorer(contractAddr)">
+          <v-list-item @click="viewOnExplorer(contractAddress)">
             <v-list-item-title>Open Contract on Explorer</v-list-item-title>
           </v-list-item>
         </v-list>
@@ -190,6 +190,13 @@
             <v-card-title>
               <v-icon class="mr-2">mdi-wallet-outline</v-icon>
               Pending Transactions
+              <v-progress-circular
+                class="ma-3"
+                color="primary"
+                v-if="loadingPending"
+                indeterminate
+              ></v-progress-circular>
+
               <v-spacer></v-spacer>
               <div class="d-flex ga-2 align-center">
                 <v-btn
@@ -197,26 +204,39 @@
                   variant="text"
                   size="small"
                   :loading="loading"
-                  @click="refreshAll"
+                  @click="getPendingTxesFromAPI"
                 ></v-btn>
+
+                <v-btn
+                  size="small"
+                  color="success"
+                  variant="flat"
+                  @click="newTransactionDialog = true"
+                >
+                  <v-icon>mdi-plus</v-icon>
+                  new transaction
+                </v-btn>
                 <v-chip color="primary" variant="outlined">
-                  {{ pendingTransactions.length }} pending
+                  {{ pendingTxTotalItems }} pending
                 </v-chip>
               </div>
             </v-card-title>
 
             <!--
-          * ~~~~~~~~~~ Transactions Proposals Table ~~~~~~~~~~~~
+          * ~~~~~~~~~~ Pending Transactions Table ~~~~~~~~~~~~
           */-->
 
             <v-data-table
-              :headers="headers"
+              v-model:options="pendingTxOptions"
+              :headers="pendingTxHeaders"
               :items="pendingTransactions"
-              :items-per-page="10"
+              :items-length="pendingTxTotalItems"
               :loading="loading"
+              density="compact"
               class="elevation-0"
               loading-text="Loading transaction requests..."
               no-data-text="No pending transactions"
+              item-value="id"
             >
               <!-- Transaction ID -->
               <template v-slot:item.id="{ item }">
@@ -225,28 +245,71 @@
                 </v-chip>
               </template>
 
+              <!-- Transaction Type -->
+              <template v-slot:item.txType="{ item }">
+                <template v-if="item.txType === 'eth'">
+                  <v-icon size="small">mdi-ethereum</v-icon>
+                  ETH
+                </template>
+                <template v-else-if="item.txType === 'erc20'">
+                  <v-chip
+                    v-if="
+                      item.erc20Contract?.toLowerCase() ===
+                      usdcContract.toLowerCase()
+                    "
+                    >USDC</v-chip
+                  >
+                  <v-chip
+                    v-else-if="
+                      item.erc20Contract?.toLowerCase() ===
+                      usdtContract.toLowerCase()
+                    "
+                  >
+                    USDT</v-chip
+                  >
+                  <v-chip v-else> ERC20 </v-chip>
+                </template>
+              </template>
               <!-- To Address -->
-              <template v-slot:item.to="{ item }">
-                <code class="text-caption">{{ truncateAddress(item.to) }}</code>
+              <template v-slot:item.toAddress="{ item }">
+                <code class="text-caption pl-1 pr-1">{{ item.toAddress }}</code>
+              </template>
+
+              <!-- To Address -->
+              <template v-slot:item.createdAt="{ item }">
+                <code class="text-caption pl-1 pr-1">{{
+                  relativeTime(item.createdAt)
+                }}</code>
               </template>
 
               <!-- Value -->
               <template v-slot:item.value="{ item }">
                 <div class="d-flex align-center">
-                  <v-icon size="small" class="mr-1">mdi-ethereum</v-icon>
-                  {{ formatEther(item.value) }} ETH
-                </div>
-              </template>
+                  <!-- ETH -->
+                  <template v-if="item.txType === 'eth'">
+                    {{
+                      formatEther(item.value)
+                        .toString()
+                        .replace(/(\.\d*?[1-9])0+$/, '$1')
+                    }}
+                    ETH
+                  </template>
 
-              <!-- Function -->
-              <template v-slot:item.functionName="{ item }">
-                <v-chip
-                  size="small"
-                  :color="getFunctionColor(item.functionName)"
-                  variant="outlined"
-                >
-                  {{ item.functionName || 'transfer' }}
-                </v-chip>
+                  <!-- ERC20 -->
+                  <template
+                    v-else-if="
+                      item.txType === 'erc20' &&
+                      item.erc20Amount &&
+                      item.erc20Decimals != null
+                    "
+                  >
+                    {{ item.erc20Amount }}
+                    <span class="ml-1">{{ item.erc20Symbol }}</span>
+                  </template>
+
+                  <!-- Fallback -->
+                  <template v-else>-</template>
+                </div>
               </template>
 
               <!-- Status -->
@@ -260,65 +323,85 @@
                 </v-chip>
               </template>
 
-              <!-- Signatures -->
-              <template v-slot:item.signatures="{ item }">
+              <!-- Signatures (stubbed) -->
+              <template v-slot:item.signatureCount="{ item }">
                 <div class="d-flex align-center">
-                  <v-progress-circular
-                    :model-value="(item.signatures / item.threshold) * 100"
-                    :size="24"
-                    :width="3"
-                    :color="
-                      item.signatures >= item.threshold ? 'success' : 'primary'
-                    "
-                    class="mr-2"
-                  ></v-progress-circular>
-                  <span class="text-caption">
-                    {{ item.signatures }}/{{ item.threshold }}
-                  </span>
+                  <v-tooltip
+                    :text="`Signatures ${item.signatureCount} of ${threshold} required`"
+                  >
+                    <template #activator="{ props }">
+                      <v-progress-circular
+                        v-bind="props"
+                        :model-value="
+                          (Number(item.signatureCount) /
+                            (Number(threshold) || 1)) *
+                          100
+                        "
+                        :size="24"
+                        :width="3"
+                        :color="
+                          Number(item.signatureCount) >= Number(threshold)
+                            ? 'success' // green
+                            : Number(item.signatureCount) >=
+                              Number(threshold) * 0.5
+                            ? 'warning' // yellow
+                            : 'error' // red
+                        "
+                        class="mr-2"
+                      />
+                    </template>
+                  </v-tooltip>
                 </div>
               </template>
 
               <!-- Actions -->
               <template v-slot:item.actions="{ item }">
                 <div class="d-flex ga-2">
+                  <!-- Pending: Sign -->
                   <v-btn
-                    size="small"
-                    color="primary"
-                    variant="outlined"
-                    @click="viewTransaction(item)"
-                    icon="mdi-eye"
-                  ></v-btn>
-
-                  <v-btn
+                    v-if="item.status === 'pending'"
                     size="small"
                     color="success"
                     variant="flat"
-                    :disabled="
-                      item.status !== 'pending' ||
-                      item.signatures >= item.threshold
-                    "
                     :loading="signingTx === item.id"
-                    @click="signTransaction(item)"
+                    @click="signPendingTx(item)"
                   >
                     <v-icon>mdi-pen</v-icon>
                     Sign
                   </v-btn>
 
+                  <!-- Pending: Execute -->
+
                   <v-btn
-                    v-if="item.signatures >= item.threshold"
+                    v-if="
+                      item.status === 'pending' &&
+                      Number(item.signatureCount) >= Number(threshold)
+                    "
                     size="small"
                     color="orange"
                     variant="flat"
                     :loading="executingTx === item.id"
-                    @click="executeTransaction(item)"
+                    @click="executePendingTx(item)"
                   >
                     <v-icon>mdi-play</v-icon>
                     Execute
                   </v-btn>
+
+                  <!-- Executed: View on explorer -->
+                  <v-btn
+                    v-else-if="item.status === 'executed'"
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                    @click="viewOnExplorer(item.txHash)"
+                  >
+                    <v-icon>mdi-open-in-new</v-icon>
+                    View
+                  </v-btn>
                 </div>
               </template>
 
-              <!-- Expandable row for transaction details -->
+              <!-- Expanded Row -->
               <template v-slot:expanded-row="{ item }">
                 <tr>
                   <td :colspan="headers.length">
@@ -341,7 +424,7 @@
                                 density="compact"
                                 rows="3"
                                 class="mt-2"
-                              ></v-textarea>
+                              />
                             </div>
                           </v-col>
                         </v-row>
@@ -445,16 +528,20 @@
 
               <!-- Created At -->
               <template v-slot:item.createdAt="{ item }">
-                {{
+                <code class="text-caption pl-1 pr-1">{{
                   item.createdAt
-                    ? new Date(item.createdAt).toLocaleString()
+                    ? relativeTime(new Date(item.createdAt))
                     : 'N/A'
-                }}
+                }}</code>
               </template>
 
               <!-- Deadline At -->
               <template v-slot:item.deadline="{ item }">
-                {{ item.deadline ? timeLeft(item.deadline) : 'N/A' }}
+                <code class="text-caption pl-1 pr-1">
+                  {{
+                    item.deadline ? relativeTime(item.deadline) : 'N/A'
+                  }}</code
+                >
               </template>
 
               <!-- Actions -->
@@ -469,7 +556,7 @@
                     :loading="executingProposal === item.id"
                     @click="voteProposal(item)"
                   >
-                    <v-icon>mdi-pen</v-icon>
+                    <v-icon>mdi-thumb-up</v-icon>
                     VOTE
                   </v-btn>
 
@@ -491,6 +578,84 @@
           </v-card>
         </v-col>
       </v-row>
+
+      <!-- New Transaction Dialog -->
+      <v-dialog
+        v-model="newTransactionDialog"
+        max-width="600"
+        width="100%"
+        scrollable
+      >
+        <v-card>
+          <v-card-title class="d-flex align-center">
+            <v-icon class="mr-2">mdi-plus-box-outline</v-icon>
+            New Transaction
+            <v-spacer></v-spacer>
+            <v-btn
+              icon="mdi-close"
+              variant="text"
+              aria-label="Close"
+              @click="newTransactionDialog = false"
+            ></v-btn>
+          </v-card-title>
+
+          <v-divider />
+
+          <v-card-text>
+            <v-form v-model="formValid" ref="transactionForm">
+              <span>Select Token</span>
+              <v-row dense>
+                <!-- Transaction Type as radio buttons -->
+                <v-col>
+                  <v-radio-group v-model="newTransaction.transactionType">
+                    <v-radio label="ETH" value="ETH" class="ma-1 pa-2" />
+                    <v-radio label="USDC" value="USDC" class="ma-1 pa-2" />
+                    <v-radio label="USDT" value="USDT" class="ma-1 pa-2" />
+                  </v-radio-group>
+                </v-col>
+
+                <!-- Recipient Address (no error rules) -->
+                <v-col cols="12">
+                  <v-text-field
+                    v-model="newTransaction.recipient"
+                    label="Send To"
+                    placeholder="0x..."
+                    variant="outlined"
+                    autofocus
+                  />
+                </v-col>
+
+                <!-- Amount full width -->
+                <v-col cols="12">
+                  <v-text-field
+                    v-model="newTransaction.amount"
+                    :label="`Amount`"
+                    type="number"
+                    step="any"
+                    variant="outlined"
+                    required
+                  />
+                </v-col>
+              </v-row>
+            </v-form>
+          </v-card-text>
+
+          <v-card-actions>
+            <v-spacer></v-spacer>
+            <v-btn
+              color="primary"
+              variant="flat"
+              size="large"
+              :loading="submitting"
+              :disabled="!formValid"
+              @click="submitTransaction"
+            >
+              <v-icon class="mr-2">mdi-check</v-icon>
+              Submit
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
 
       <!-- New Proposal Dialog -->
       <v-dialog v-model="newProposalDialog" max-width="600">
@@ -642,22 +807,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
-import { useRuntimeConfig } from '#app';
+import { ref, onMounted, watch, unref } from 'vue';
+import { useRuntimeConfig, useFetch } from '#app';
 import { useMetaMask } from '../composables/useMetaMask';
-import { ethers } from 'ethers';
-// types
-import type { Transaction } from '../types/transaction';
+import { PendingTransaction } from '../types/pending_tx';
+import { ethers, parseEther } from 'ethers';
 import type { Proposal } from '../types/proposal';
-import { MANTIKEY_ABI } from '../abi/mantikey_abi'; // Add this line
+import { MANTIKEY_ABI } from '../abi/mantikey_abi';
+import { fetchSignatures, fetchPendingTxes } from '../composables/pendingTxes';
 
 // utils
-import { truncateAddress, formatEther, timeLeft } from '../utils/format';
+import { truncateAddress, formatEther, relativeTime } from '../utils/format';
 import { getFunctionColor, getStatusColor } from '../utils/colors';
 
 // Nuxt runtime config
 const config = useRuntimeConfig();
-const contractAddr = config.public.contractAddr;
+const backendURI = config.public.backendURI;
+const contractAddress = config.public.contractAddress;
 const explorerURI = config.public.explorerURI;
 const usdcContract = config.public.usdcContract;
 const usdtContract = config.public.usdtContract;
@@ -668,15 +834,15 @@ const usdtDecimals = config.public.usdtDecimals;
 const { isConnected, account, connect, disconnect, getBalance, signMessage } =
   useMetaMask();
 
-// table headers
-const headers = [
-  { title: 'ID', key: 'id', sortable: true, width: '80px' },
-  { title: 'To', key: 'to', sortable: false, width: '140px' },
-  { title: 'Value', key: 'value', sortable: true, width: '120px' },
-  { title: 'Function', key: 'functionName', sortable: true, width: '120px' },
-  { title: 'Status', key: 'status', sortable: true, width: '100px' },
-  { title: 'Signatures', key: 'signatures', sortable: true, width: '100px' },
-  { title: 'Actions', key: 'actions', sortable: false, width: '200px' },
+const pendingTxHeaders = [
+  { title: 'ID', key: 'id', width: '80px' },
+  { title: 'Type', key: 'txType' },
+  { title: 'To Address', key: 'toAddress', width: '140px' },
+  { title: 'Value', key: 'value' },
+  { title: 'Status', key: 'status' },
+  { title: 'Sigs', key: 'signatureCount' },
+  { title: 'Created', key: 'createdAt' },
+  { title: 'Actions', key: 'actions', sortable: false },
 ];
 
 const proposalHeaders = [
@@ -694,7 +860,7 @@ const proposalHeaders = [
 
   { title: 'Status', key: 'status', sortable: true, width: '120px' },
   { title: 'Deadline', key: 'deadline', sortable: true, width: '180px' },
-  { title: 'Created At', key: 'createdAt', sortable: true, width: '180px' },
+  { title: 'Created', key: 'createdAt', sortable: true, width: '180px' },
   { title: 'Action', key: 'action', sortable: true, width: '100px' },
 ];
 
@@ -731,14 +897,30 @@ const contractBalanceETH = ref<number>(0);
 const contractBalanceUSDC = ref<number>(0);
 const contractBalanceUSDT = ref<number>(0);
 
-const detailsDialog = ref(false);
-const selectedTransaction = ref<Transaction | null>(null);
 const signingTx = ref<number | null>(null);
 const executingTx = ref<number | null>(null);
 const executingProposal = ref<number | null>(null);
 const loading = ref(false);
+const loadingPending = ref(false); // guard to prevent re-entrancy
 
-const pendingTransactions = ref<Transaction[]>([]);
+// New Transaction Dialog state
+const newTransactionDialog = ref(false);
+
+// Transaction data
+const newTransaction = ref({
+  transactionType: 'ETH',
+  recipient: '0x376d1c280197d6a6b2FBBA5E8D7f77fDEE999E06',
+  amount: '0.000123',
+});
+
+// pending txes
+const pendingTransactions = ref<PendingTransaction[]>([]);
+const pendingTxOptions = ref({
+  page: 1,
+  itemsPerPage: 20,
+});
+const pendingTxTotalItems = ref(0);
+
 const proposals = ref<Proposal[]>([]);
 const loadingProposals = ref(false);
 const newProposalDialog = ref(false);
@@ -788,7 +970,7 @@ const handleSubmitProposal = async () => {
     const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
 
-    const contract = new ethers.Contract(contractAddr, MANTIKEY_ABI, signer);
+    const contract = new ethers.Contract(contractAddress, MANTIKEY_ABI, signer);
 
     let tx;
     const proposalType = newProposal.value.proposalType;
@@ -905,6 +1087,270 @@ const handleSubmitProposal = async () => {
   }
 };
 
+const getPendingTxesFromAPI = async (opts?: { retry?: number }) => {
+  // simple guard to avoid re-entrancy/infinite loop
+  if (loadingPending.value) {
+    console.warn(
+      'getPendingTxesFromAPI: call skipped because a fetch is already in progress'
+    );
+    return;
+  }
+
+  loadingPending.value = true;
+  console.log('retrieving pending txes...');
+
+  const maxRetries = opts?.retry ?? 2;
+  let attempt = 0;
+
+  // Helper: small delay between retries
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  try {
+    while (attempt <= maxRetries) {
+      attempt++;
+      try {
+        const page = Number(pendingTxOptions.value.page) || 1;
+        const itemsPerPage = Number(pendingTxOptions.value.itemsPerPage) || 20;
+
+        // If fetchPendingTxes uses fetch/axios, consider passing an AbortController (not shown here).
+        const { data, pagination } = await fetchPendingTxes(page, itemsPerPage);
+
+        // Defensive: ensure plain JS values to avoid accidental reactivity loops
+        pendingTransactions.value = Array.isArray(data) ? [...data] : [];
+        pendingTxTotalItems.value = pagination?.total
+          ? Number(pagination.total)
+          : 0;
+
+        console.log(
+          `fetched ${pendingTxTotalItems.value} pending txes from API (attempt ${attempt})`
+        );
+        // success -> break retry loop
+        break;
+      } catch (innerErr) {
+        console.error(
+          `Attempt ${attempt} failed to fetch pending txes:`,
+          innerErr
+        );
+
+        // If backend unreachable, break and show snackbar once
+        if (innerErr?.response == undefined) {
+          showSnackbar(
+            'API is unreachable. Please configure correctly the backend',
+            'error'
+          );
+          // no point in retrying if no response (optional: still retry once)
+          break;
+        }
+
+        // if we've exhausted retries, show generic error and stop
+        if (attempt > maxRetries) {
+          showSnackbar('Failed to fetch pending transactions', 'error');
+          break;
+        }
+
+        // else wait and retry
+        await wait(500 * attempt); // exponential-ish backoff: 500ms, 1000ms, ...
+      }
+    }
+  } catch (err) {
+    console.error('Unexpected error in getPendingTxesFromAPI:', err);
+    showSnackbar('Failed to fetch pending transactions', 'error');
+  } finally {
+    loadingPending.value = false;
+  }
+};
+
+const signPendingTx = async (item) => {
+  if (!account.value) {
+    showSnackbar('Please connect your wallet first', 'error');
+    return;
+  }
+
+  signingTx.value = item.id;
+  try {
+    // Get the provider and signer from MetaMask
+    if (!window.ethereum) {
+      throw new Error('MetaMask not found');
+    }
+
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+
+    // Prepare transaction data for signing
+    let toAddress = item.toAddress;
+    let value = '0';
+    let data = '0x';
+
+    if (item.txType === 'eth') {
+      // For ETH transfers, use the value directly
+      value = item.value.toString();
+    } else if (item.txType === 'erc20') {
+      // For ERC20 transfers, construct the transfer call data
+      const ERC20_ABI = [
+        'function transfer(address to, uint256 amount) returns (bool)',
+      ];
+      const erc20Interface = new ethers.Interface(ERC20_ABI);
+
+      // Convert amount to proper units based on decimals
+      const amount = ethers.parseUnits(
+        item.erc20Amount.toString(),
+        Number(item.erc20Decimals)
+      );
+
+      // Encode the transfer function call
+      data = erc20Interface.encodeFunctionData('transfer', [toAddress, amount]);
+
+      // For ERC20, the actual transaction is to the token contract
+      toAddress = item.erc20Contract;
+      value = '0'; // No ETH value for ERC20 transfers
+    }
+
+    // Create the EIP712 domain
+    const domain = {
+      name: 'MantiKey',
+      version: '1',
+      chainId: await signer.provider
+        .getNetwork()
+        .then((n) => Number(n.chainId)),
+      verifyingContract: contractAddress,
+    };
+
+    // Create the message structure matching the contract's TX_TYPEHASH
+    const types = {
+      Transaction: [
+        { name: 'to', type: 'address' },
+        { name: 'value', type: 'uint256' },
+        { name: 'data', type: 'bytes' },
+        { name: 'nonce', type: 'uint256' },
+        { name: 'deadline', type: 'uint256' },
+      ],
+    };
+
+    const message = {
+      to: toAddress,
+      value: value,
+      data: data,
+      nonce: item.nonce,
+      deadline: item.deadline,
+    };
+
+    console.log('Signing transaction:', {
+      domain,
+      types,
+      message,
+      item,
+    });
+
+    // Sign the structured data using EIP712
+    showSnackbar('Please check your wallet to sign the transaction', 'info');
+    const signature = await signer.signTypedData(domain, types, message);
+
+    console.log('Transaction signed successfully:', signature);
+
+    let body: Record<string, any> = {
+      pendingTxID: item.id,
+      signature: signature,
+      message: message,
+      signer: account.value,
+    };
+
+    // Submit the signature to the backend
+    const { dataResponse, error } = await useFetch(`${backendURI}/sign_tx`, {
+      method: 'POST',
+      body: body,
+    });
+    console.log('data from /sign_tx', dataResponse);
+
+    if (error.value) {
+      console.error('❌ Failed:', error.value);
+
+      // Handle different error formats
+      if (error.value.data?.message) {
+        showSnackbar(error.value.data.message, 'error');
+      } else if (error.value.data?.error) {
+        showSnackbar(error.value.data.error, 'error');
+      } else {
+        showSnackbar('Failed to submit transaction', 'error');
+      }
+    } else {
+      console.log('✅ Transaction submitted');
+      showSnackbar('Transaction submitted successfully', 'success');
+      newTransactionDialog.value = false;
+    }
+
+    // Refresh the pending transactions to show updated signature count
+    await getPendingTxesFromAPI();
+  } catch (error: any) {
+    console.error('Error signing transaction:', error);
+
+    let errorMessage = 'Failed to sign transaction';
+    if (error.code === 'ACTION_REJECTED') {
+      errorMessage = 'Transaction signing was rejected by user';
+    } else if (error.message.includes('User rejected')) {
+      errorMessage = 'Transaction signing was rejected by user';
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+
+    showSnackbar(errorMessage, 'error');
+  }
+  signingTx.value = null;
+};
+
+const executePendingTx = async (item) => {
+  if (!account.value) {
+    showSnackbar('Please connect your wallet first', 'error');
+    return;
+  }
+
+  console.log('trying to execute tx id', item.id);
+  executingTx.value = item.id;
+
+  try {
+    if (!window.ethereum) throw new Error('MetaMask not found');
+
+    // 1. Fetch sigs from backend
+    const { signatures } = await fetchSignatures(Number(item.id));
+
+    console.log('signatures from backend:', signatures);
+
+    if (signatures.length === 0) {
+      showSnackbar('No signatures collected yet', 'warning');
+      return;
+    }
+
+    // 2. Setup provider & signer
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+
+    // 3. Connect contract
+    const contract = new ethers.Contract(contractAddress, MANTIKEY_ABI, signer);
+
+    // Extract only raw hex signatures
+    const sigs: string[] = signatures.map((s) => s.signature);
+
+    // 4. Prepare call
+    const tx = await contract.execute(
+      item.toAddress,
+      item.value,
+      item.data ?? '0x',
+      item.nonce,
+      item.deadline,
+      sigs
+    );
+
+    showSnackbar(`Transaction sent. Please wait`, 'success');
+
+    const receipt = await tx.wait();
+    lastTxHash.value = receipt.hash;
+    txHashDialog.value = true;
+  } catch (error: any) {
+    console.error('Error executing transaction:', error);
+    showSnackbar(error.message, 'error');
+  } finally {
+    executingTx.value = null;
+  }
+};
 const updateContractData = async () => {
   console.log('Updating contract data...');
   try {
@@ -912,7 +1358,11 @@ const updateContractData = async () => {
       throw new Error('MetaMask not found');
     }
     const provider = new ethers.BrowserProvider(window.ethereum);
-    const contract = new ethers.Contract(contractAddr, MANTIKEY_ABI, provider);
+    const contract = new ethers.Contract(
+      contractAddress,
+      MANTIKEY_ABI,
+      provider
+    );
     signers.value = await contract.getAllSigners();
     console.log('Contract signers:', signers.value);
     await sleep(500);
@@ -947,7 +1397,7 @@ const updateBalances = async () => {
         'Your wallet balance is 0. You cannot interract with the contract';
     }
 
-    contractBalanceETH.value = (await getBalance(contractAddr)) ?? 0;
+    contractBalanceETH.value = (await getBalance(contractAddress)) ?? 0;
     console.log('contract ETH balance', contractBalanceETH.value);
 
     const provider = new ethers.BrowserProvider(window.ethereum);
@@ -956,13 +1406,13 @@ const updateBalances = async () => {
     const contractUSDC = new ethers.Contract(usdcContract, ERC20_ABI, provider);
     const contractUSDT = new ethers.Contract(usdtContract, ERC20_ABI, provider);
 
-    let balanceUSDCRaw = await contractUSDC.balanceOf(contractAddr);
+    let balanceUSDCRaw = await contractUSDC.balanceOf(contractAddress);
     contractBalanceUSDC.value = Number(
       ethers.formatUnits(balanceUSDCRaw, Number(usdcDecimals))
     );
     console.log('contract USDC balance', contractBalanceUSDC.value);
     await sleep(500);
-    let balanceUSDTRaw = await contractUSDT.balanceOf(contractAddr);
+    let balanceUSDTRaw = await contractUSDT.balanceOf(contractAddress);
     contractBalanceUSDT.value = Number(
       ethers.formatUnits(balanceUSDTRaw, Number(usdtDecimals))
     );
@@ -987,7 +1437,11 @@ const loadProposals = async () => {
 
     const provider = new ethers.BrowserProvider(window.ethereum);
 
-    const contract = new ethers.Contract(contractAddr, MANTIKEY_ABI, provider);
+    const contract = new ethers.Contract(
+      contractAddress,
+      MANTIKEY_ABI,
+      provider
+    );
 
     // Get proposal count
     let count = 0;
@@ -1013,17 +1467,6 @@ const loadProposals = async () => {
           deadline,
           expired,
         ] = await contract.getProposalInfo(i);
-
-        console.log(`proposal info #${i}:`, {
-          pType,
-          target,
-          newThreshold: newThreshold.toString(),
-          votes: votes.toString(),
-          executed,
-          createdAt: createdAt.toString(),
-          deadline: deadline.toString(),
-          expired,
-        });
 
         const hasUserVoted = await contract.hasVoted(i, account.value);
 
@@ -1074,7 +1517,7 @@ const executeProposal = async (proposal: Proposal) => {
 
     const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
-    const contract = new ethers.Contract(contractAddr, MANTIKEY_ABI, signer);
+    const contract = new ethers.Contract(contractAddress, MANTIKEY_ABI, signer);
 
     showSnackbar('Please check your wallet for confirmation', 'info');
     const tx = await contract.executeProposal(proposal.id);
@@ -1108,12 +1551,7 @@ const refreshAll = () => {
   updateContractData();
   updateBalances();
   loadProposals();
-};
-
-// transaction actions
-const viewTransaction = (transaction: Transaction) => {
-  selectedTransaction.value = transaction;
-  detailsDialog.value = true;
+  getPendingTxesFromAPI();
 };
 
 const voteProposal = async (proposal: Proposal) => {
@@ -1127,7 +1565,7 @@ const voteProposal = async (proposal: Proposal) => {
     const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
     const contractABI = ['function vote(uint256 proposalId) external'];
-    const contract = new ethers.Contract(contractAddr, contractABI, signer);
+    const contract = new ethers.Contract(contractAddress, contractABI, signer);
 
     showSnackbar('Please check your wallet for confirmation', 'info');
     const tx = await contract.vote(proposal.id);
@@ -1179,6 +1617,79 @@ watch(isConnected, (connected) => {
     refreshAll();
   }
 });
+
+watch(
+  () => ({ ...pendingTxOptions.value }),
+  () => {
+    getPendingTxesFromAPI();
+  },
+  { deep: true, immediate: true }
+);
+
+const submitTransaction = async () => {
+  if (!formValid.value) return;
+
+  submitting.value = true;
+
+  console.log('Submitting new transaction:', newTransaction.value);
+
+  try {
+    //get the nonce
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const contract = new ethers.Contract(contractAddress, MANTIKEY_ABI, signer);
+    const nonce = Number(await contract.nonce());
+    console.log('Current nonce:', nonce);
+
+    let body: Record<string, any> = {
+      toAddress: newTransaction.value.recipient,
+      data: null,
+      nonce: nonce,
+      deadline: Math.floor(Date.now() / 1000) + 60 * 20, // 20 min from now
+    };
+
+    if (newTransaction.value.transactionType === 'ETH') {
+      body.txType = 'eth';
+      body.value = parseEther(newTransaction.value.amount).toString(); // wei
+      body.erc20Contract = null;
+      body.erc20Amount = null;
+      body.erc20Symbol = null;
+      body.erc20Decimals = null;
+    } else if (newTransaction.value.transactionType === 'USDC') {
+      body.txType = 'erc20';
+      body.value = '0';
+      body.erc20Contract = config.public.usdcContract;
+      body.erc20Amount = newTransaction.value.amount;
+      body.erc20Symbol = 'USDC';
+      body.erc20Decimals = config.public.usdcDecimals;
+    } else if (newTransaction.value.transactionType === 'USDT') {
+      body.txType = 'erc20';
+      body.value = '0';
+      body.erc20Contract = config.public.usdtContract;
+      body.erc20Amount = newTransaction.value.amount;
+      body.erc20Symbol = 'USDT';
+      body.erc20Decimals = config.public.usdtDecimals;
+    }
+
+    const { error } = await useFetch(backendURI + '/pending_transaction', {
+      method: 'POST',
+      body,
+    });
+
+    if (error.value) {
+      console.error('❌ Failed:', error.value);
+    } else {
+      console.log('✅ Transaction submitted');
+      showSnackbar('Transaction submitted successfully', 'success');
+      newTransactionDialog.value = false;
+      await getPendingTxesFromAPI();
+    }
+  } catch (err) {
+    console.error('Unexpected error:', err);
+  } finally {
+    submitting.value = false;
+  }
+};
 </script>
 
 <style scoped>
