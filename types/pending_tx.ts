@@ -16,6 +16,6 @@ export interface PendingTransaction {
   status: TransactionStatus;
   createdAt: string;
   txHash: string;
-  signatureCount?: number;
+  signatureCount: number;
   currentStatus?: TransactionStatus;
 }

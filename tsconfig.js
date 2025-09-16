@@ -3,7 +3,7 @@
     "compilerOptions": {
       "strict": true,
       "paths": {
-        "#imports": [".nuxt/imports.d.ts"]
+        "#imports": [".nuxt/imports.d.ts"],
       }
     }
   }

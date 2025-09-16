@@ -1,9 +1,31 @@
 /* assets/main.css */
 /* Add global styles here */
-.v-toolbar {
+@import url('https://fonts.cdnfonts.com/css/neue-haas-grotesk-display-pro');
+
+body {
+  font-family: 'Neue Haas Grotesk Display Pro', Arial, sans-serif;
+  background-color: #fff;
+  color: #000;
+  margin: 0;
+  padding: 0;
 }
 
 .balance-chip-compact {
   font-family: 'Courier New', Consolas, monospace;
   font-size: 0.875rem;
+}
+
+.v-data-table {
+  background: transparent;
+}
+
+code {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.balance-chip-compact {
+  font-size: 0.75rem;
 }
