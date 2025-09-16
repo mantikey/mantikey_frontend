@@ -814,7 +814,11 @@ import { PendingTransaction } from '../types/pending_tx';
 import { ethers, parseEther } from 'ethers';
 import type { Proposal } from '../types/proposal';
 import { MANTIKEY_ABI } from '../abi/mantikey_abi';
-import { fetchSignatures, fetchPendingTxes } from '../composables/pendingTxes';
+import {
+  fetchSignatures,
+  fetchPendingTxes,
+  updateTxStatus,
+} from '../composables/pendingTxes';
 
 // utils
 import { truncateAddress, formatEther, relativeTime } from '../utils/format';
@@ -1168,7 +1172,6 @@ const signPendingTx = async (item) => {
 
   signingTx.value = item.id;
   try {
-    // Get the provider and signer from MetaMask
     if (!window.ethereum) {
       throw new Error('MetaMask not found');
     }
@@ -1176,36 +1179,37 @@ const signPendingTx = async (item) => {
     const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
 
-    // Prepare transaction data for signing
+    // Prepare transaction data
     let toAddress = item.toAddress;
     let value = '0';
     let data = '0x';
 
     if (item.txType === 'eth') {
-      // For ETH transfers, use the value directly
+      // ETH transfer
       value = item.value.toString();
-    } else if (item.txType === 'erc20') {
-      // For ERC20 transfers, construct the transfer call data
+    } else if (item.txType.toLowerCase() === 'erc20') {
+      // ERC20 transfer
       const ERC20_ABI = [
         'function transfer(address to, uint256 amount) returns (bool)',
       ];
       const erc20Interface = new ethers.Interface(ERC20_ABI);
-
-      // Convert amount to proper units based on decimals
+      // Convert amount to proper units
       const amount = ethers.parseUnits(
         item.erc20Amount.toString(),
-        Number(item.erc20Decimals)
+        item.erc20Decimals
       );
-
-      // Encode the transfer function call
+      console.log(
+        `Preparing Signing ERC20 transfer of ${item.erc20Amount} (raw: ${amount}) to ${toAddress} for contract ${item.erc20Contract}`
+      );
+      // Encode transfer call
       data = erc20Interface.encodeFunctionData('transfer', [toAddress, amount]);
 
-      // For ERC20, the actual transaction is to the token contract
+      // For ERC20, send tx to token contract
       toAddress = item.erc20Contract;
-      value = '0'; // No ETH value for ERC20 transfers
+      value = '0';
     }
 
-    // Create the EIP712 domain
+    // EIP712 domain
     const domain = {
       name: 'MantiKey',
       version: '1',
@@ -1215,7 +1219,6 @@ const signPendingTx = async (item) => {
       verifyingContract: contractAddress,
     };
 
-    // Create the message structure matching the contract's TX_TYPEHASH
     const types = {
       Transaction: [
         { name: 'to', type: 'address' },
@@ -1234,37 +1237,31 @@ const signPendingTx = async (item) => {
       deadline: item.deadline,
     };
 
-    console.log('Signing transaction:', {
-      domain,
-      types,
-      message,
-      item,
-    });
+    console.log('Signing transaction:', { domain, types, message, item });
 
-    // Sign the structured data using EIP712
+    // Request signature
     showSnackbar('Please check your wallet to sign the transaction', 'info');
     const signature = await signer.signTypedData(domain, types, message);
 
     console.log('Transaction signed successfully:', signature);
 
-    let body: Record<string, any> = {
+    const body: Record<string, any> = {
       pendingTxID: item.id,
       signature: signature,
       message: message,
       signer: account.value,
     };
 
-    // Submit the signature to the backend
+    // Submit signature
     const { dataResponse, error } = await useFetch(`${backendURI}/sign_tx`, {
       method: 'POST',
-      body: body,
+      body,
     });
     console.log('data from /sign_tx', dataResponse);
 
     if (error.value) {
       console.error('❌ Failed:', error.value);
 
-      // Handle different error formats
       if (error.value.data?.message) {
         showSnackbar(error.value.data.message, 'error');
       } else if (error.value.data?.error) {
@@ -1278,7 +1275,6 @@ const signPendingTx = async (item) => {
       newTransactionDialog.value = false;
     }
 
-    // Refresh the pending transactions to show updated signature count
     await getPendingTxesFromAPI();
   } catch (error: any) {
     console.error('Error signing transaction:', error);
@@ -1312,8 +1308,6 @@ const executePendingTx = async (item) => {
     // 1. Fetch sigs from backend
     const { signatures } = await fetchSignatures(Number(item.id));
 
-    console.log('signatures from backend:', signatures);
-
     if (signatures.length === 0) {
       showSnackbar('No signatures collected yet', 'warning');
       return;
@@ -1329,11 +1323,41 @@ const executePendingTx = async (item) => {
     // Extract only raw hex signatures
     const sigs: string[] = signatures.map((s) => s.signature);
 
-    // 4. Prepare call
+    // 4. Rebuild tx fields (don’t use item.data directly for ERC20)
+    let toAddress = item.toAddress;
+    let value = item.value;
+    let data = item.data ?? '0x';
+
+    if (item.txType.toLowerCase() === 'erc20') {
+      const ERC20_ABI = [
+        'function transfer(address to, uint256 amount) returns (bool)',
+      ];
+      const erc20Interface = new ethers.Interface(ERC20_ABI);
+
+      // Pick correct decimals
+      const contractAddr = item.erc20Contract?.toLowerCase() ?? '';
+
+      const amount = ethers.parseUnits(
+        item.erc20Amount ?? '0',
+        item.erc20Decimals
+      );
+
+      // Encode transfer(to, amount)
+      data = erc20Interface.encodeFunctionData('transfer', [
+        item.toAddress,
+        amount,
+      ]);
+
+      // For ERC20, tx is sent to the token contract
+      toAddress = item.erc20Contract!;
+      value = '0';
+    }
+
+    // 5. Execute multisig contract call
     const tx = await contract.execute(
-      item.toAddress,
-      item.value,
-      item.data ?? '0x',
+      toAddress,
+      value,
+      data,
       item.nonce,
       item.deadline,
       sigs
@@ -1344,6 +1368,9 @@ const executePendingTx = async (item) => {
     const receipt = await tx.wait();
     lastTxHash.value = receipt.hash;
     txHashDialog.value = true;
+
+    await updateTxStatus(item.id, receipt.hash);
+    await getPendingTxesFromAPI();
   } catch (error: any) {
     console.error('Error executing transaction:', error);
     showSnackbar(error.message, 'error');
@@ -1351,6 +1378,7 @@ const executePendingTx = async (item) => {
     executingTx.value = null;
   }
 };
+
 const updateContractData = async () => {
   console.log('Updating contract data...');
   try {
@@ -1407,6 +1435,7 @@ const updateBalances = async () => {
     const contractUSDT = new ethers.Contract(usdtContract, ERC20_ABI, provider);
 
     let balanceUSDCRaw = await contractUSDC.balanceOf(contractAddress);
+
     contractBalanceUSDC.value = Number(
       ethers.formatUnits(balanceUSDCRaw, Number(usdcDecimals))
     );

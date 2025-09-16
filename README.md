@@ -4,8 +4,7 @@ sepolia contract: [0x642428Fb30F15aF591059619828d81bC40ada874](https://sepolia.e
 
 ### TODOs:
 
-- show voting / execute when appropriate
-- reload the proposals after tx dialog close in 2-3 seconds
+- status tx to backend -> update status to executed
 - make it mobile friendly
 
 ### Build

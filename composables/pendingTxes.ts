@@ -48,3 +48,25 @@ export async function fetchSignatures(
     query: { txID },
   });
 }
+
+/**
+ * Update Tx Status
+ */
+export async function updateTxStatus(
+  txID: string | number,
+  hash: string
+): Promise<{ message: string; txID: string; txStatus: string }> {
+  const config = useRuntimeConfig();
+  const backendURI = config.public.backendURI;
+
+  return await $fetch<{ message: string; txID: string; txStatus: string }>(
+    `${backendURI}/tx`,
+    {
+      method: 'PUT',
+      body: {
+        txID,
+        hash,
+      },
+    }
+  );
+}
