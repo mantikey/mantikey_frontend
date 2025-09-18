@@ -7,6 +7,7 @@ export default defineNuxtConfig({
       backendURI: process.env.BACKEND_URI,
       contractAddress: process.env.CONTRACT_ADDRESS,
       explorerURI: process.env.EXPLORER_URI,
+      chainID: process.env.CHAIN_ID,
       usdcContract: process.env.USDC_CONTRACT,
       usdtContract: process.env.USDT_CONTRACT,
       usdcDecimals: process.env.USDC_DECIMALS,

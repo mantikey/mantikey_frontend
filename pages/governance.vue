@@ -17,8 +17,8 @@
 
       <v-spacer></v-spacer>
 
-      <v-btn variant="flat" to="/" class="ml-3">Home</v-btn>
-      <v-btn variant="outlined" to="/governance" class="ml-3">Governance</v-btn>
+      <v-btn variant="outlined" to="/" class="ml-3">Home</v-btn>
+      <v-btn variant="flat" to="/governance" class="ml-3">Governance</v-btn>
       <v-btn variant="outlined" to="/settings" class="ml-3">Settings</v-btn>
 
       <!-- Wallet Connection Area -->
@@ -196,206 +196,6 @@
       <!-- ========== TRANSACTIONS SECTION ========== -->
       <v-row class="mt-5">
         <v-col cols="12">
-          <v-card>
-            <v-card-title>
-              <v-icon class="mr-2">mdi-wallet-outline</v-icon>
-              Transactions
-
-              <v-chip
-                v-if="pendingStatusCount"
-                class="ml-1"
-                color="yellow"
-                variant="flat"
-              >
-                {{ pendingStatusCount }} pending
-              </v-chip>
-
-              <v-spacer></v-spacer>
-
-              <!-- Actions Bar -->
-              <div class="d-flex ga-2 align-center">
-                <v-btn
-                  icon="mdi-refresh"
-                  variant="text"
-                  size="small"
-                  :loading="loading"
-                  @click="getTransactionsFromAPI"
-                ></v-btn>
-
-                <v-btn
-                  size="small"
-                  color="success"
-                  variant="flat"
-                  @click="newTransactionDialog = true"
-                >
-                  <v-icon>mdi-plus</v-icon>
-                  new transaction
-                </v-btn>
-              </div>
-            </v-card-title>
-
-            <!-- Transactions Data Table -->
-            <v-data-table
-              :headers="transactionsHeaders"
-              :items="transactions"
-              :items-per-page="10"
-              :loading="loading"
-              class="elevation-0"
-              loading-text="Loading transactions..."
-              no-data-text="No transactions found"
-            >
-              <!-- Custom Column Templates -->
-              <template v-slot:item.id="{ item }">
-                <v-chip size="small" color="blue" variant="outlined">
-                  {{ item.id }}
-                </v-chip>
-              </template>
-
-              <template v-slot:item.txType="{ item }">
-                <template v-if="item.txType === 'eth'">
-                  <v-icon size="small">mdi-ethereum</v-icon>
-                  ETH
-                </template>
-                <template v-else-if="item.txType === 'erc20'">
-                  <span v-if="isUSDCContract(item.erc20Contract!)">
-                    <v-icon size="small">mdi-currency-usd</v-icon>
-                    USDC
-                  </span>
-                  <span v-if="isUSDTContract(item.erc20Contract!)">
-                    <v-icon size="small">mdi-currency-usd</v-icon>
-                    USDT
-                  </span>
-                </template>
-              </template>
-
-              <template v-slot:item.toAddress="{ item }">
-                <div
-                  class="d-flex align-center justify-space-between"
-                  style="white-space: nowrap"
-                >
-                  <code class="text-caption pl-1 pr-1">{{
-                    item.toAddress
-                  }}</code>
-                  <v-btn
-                    icon="mdi-content-copy"
-                    size="x-small"
-                    variant="text"
-                    @click="copyToClipboard(item.toAddress)"
-                  />
-                </div>
-              </template>
-
-              <template v-slot:item.createdAt="{ item }">
-                <code class="text-caption pl-1 pr-1">{{
-                  relativeTime(new Date(item.createdAt))
-                }}</code>
-              </template>
-
-              <template v-slot:item.value="{ item }">
-                <div class="d-flex align-center">
-                  <template v-if="item.txType === 'eth'">
-                    {{
-                      formatEther(BigInt(item.value))
-                        .toString()
-                        .replace(/(\.\d*?[1-9])0+$/, '$1')
-                    }}
-                    ETH
-                  </template>
-                  <template
-                    v-else-if="
-                      item.txType === 'erc20' &&
-                      item.erc20Amount &&
-                      item.erc20Decimals != null
-                    "
-                  >
-                    {{ item.erc20Amount }}
-                    <span class="ml-1">{{ item.erc20Symbol }}</span>
-                  </template>
-                  <template v-else>-</template>
-                </div>
-              </template>
-
-              <template v-slot:item.status="{ item }">
-                <v-chip
-                  size="small"
-                  :color="getStatusColor(item.status)"
-                  variant="flat"
-                >
-                  {{ item.status }}
-                </v-chip>
-              </template>
-
-              <template v-slot:item.signatureCount="{ item }">
-                <div class="d-flex align-center">
-                  <v-tooltip
-                    :text="`Signatures ${item.signatureCount} of ${threshold} required`"
-                  >
-                    <template #activator="{ props }">
-                      <v-progress-circular
-                        v-bind="props"
-                        :model-value="
-                          (Number(item.signatureCount) /
-                            (Number(threshold) || 1)) *
-                          100
-                        "
-                        :size="24"
-                        :width="3"
-                        :color="getSignatureProgressColor(item.signatureCount)"
-                        class="mr-2"
-                      />
-                    </template>
-                  </v-tooltip>
-                </div>
-              </template>
-
-              <template v-slot:item.actions="{ item }">
-                <div class="d-flex ga-2">
-                  <!-- Sign Transaction Button -->
-                  <v-btn
-                    v-if="item.status === 'pending'"
-                    size="small"
-                    color="success"
-                    variant="flat"
-                    :loading="signingTx === item.id"
-                    @click="signPendingTx(item)"
-                  >
-                    <v-icon>mdi-pen</v-icon>
-                    Sign
-                  </v-btn>
-
-                  <!-- Execute Transaction Button -->
-                  <v-btn
-                    v-if="
-                      Number(threshold) !== 0 &&
-                      item.status === 'pending' &&
-                      Number(item.signatureCount) >= Number(threshold)
-                    "
-                    size="small"
-                    color="orange"
-                    variant="flat"
-                    :loading="executingTx === item.id"
-                    @click="executePendingTx(item)"
-                  >
-                    <v-icon>mdi-play</v-icon>
-                    Execute
-                  </v-btn>
-
-                  <!-- View on Explorer Button -->
-                  <v-btn
-                    v-else-if="item.status === 'executed'"
-                    size="small"
-                    color="primary"
-                    variant="outlined"
-                    @click="viewOnExplorer(item.txHash)"
-                  >
-                    <v-icon>mdi-open-in-new</v-icon>
-                    View
-                  </v-btn>
-                </div>
-              </template>
-            </v-data-table>
-          </v-card>
-
           <!-- ========== GOVERNANCE PROPOSALS SECTION ========== -->
           <v-card class="mt-5">
             <v-card-title>
@@ -643,33 +443,53 @@
 
           <v-card-text>
             <v-form v-model="formValid" ref="proposalForm">
+              <p class="text-body-2 mb-4">Proposal Type</p>
               <!-- Proposal Type Selection -->
               <v-select
                 v-model="newProposal.proposalType"
+                variant="outlined"
                 :items="proposalTypeOptions"
-                label="Proposal Type"
                 required
               ></v-select>
 
               <!-- Conditional Fields Based on Proposal Type -->
+              <p
+                v-if="newProposal.proposalType === 'ADD_SIGNER'"
+                class="text-body-2 mb-4"
+              >
+                New Signer Address
+              </p>
               <v-text-field
                 v-if="newProposal.proposalType === 'ADD_SIGNER'"
                 v-model="newProposal.theSigner"
-                label="New Signer Address"
+                variant="outlined"
                 required
               ></v-text-field>
 
+              <p
+                v-if="newProposal.proposalType === 'REMOVE_SIGNER'"
+                class="text-body-2 mb-4"
+              >
+                Signer Address To Remove
+              </p>
               <v-text-field
                 v-if="newProposal.proposalType === 'REMOVE_SIGNER'"
                 v-model="newProposal.theSigner"
-                label="Signer Address to Remove"
+                variant="outlined"
                 required
               ></v-text-field>
+
+              <p
+                v-if="newProposal.proposalType === 'CHANGE_THRESHOLD'"
+                class="text-body-2 mb-4"
+              >
+                New Threshold
+              </p>
 
               <v-text-field
                 v-if="newProposal.proposalType === 'CHANGE_THRESHOLD'"
                 v-model="newProposal.newThreshold"
-                label="New Threshold"
+                variant="outlined"
                 type="number"
                 min="1"
                 required
@@ -790,12 +610,6 @@ import { Transaction } from '../types/transaction';
 import { ethers, parseEther } from 'ethers';
 import type { Proposal } from '../types/proposal';
 import { MANTIKEY_ABI } from '../abi/mantikey_abi';
-import {
-  fetchSignatures,
-  fetchTransactions,
-  updateTxStatus,
-  recordSignature,
-} from '../composables/transactions';
 
 // Utils
 import { truncateAddress, formatEther, relativeTime } from '../utils/format';
@@ -863,33 +677,6 @@ const walletBalanceETH = ref<number>(0);
 const contractBalanceETH = ref<number>(0);
 const contractBalanceUSDC = ref<number>(0);
 const contractBalanceUSDT = ref<number>(0);
-
-// ========== TRANSACTION MANAGEMENT ==========
-
-// Transactions data and pagination
-const transactions = ref<Transaction[]>([]);
-
-// 2. Simple flag to prevent double calls
-let isUpdatingOptions = false;
-
-// Table headers for pending transactions
-const transactionsHeaders = [
-  { title: 'ID', key: 'id', width: '80px' },
-  { title: 'Type', key: 'txType', width: '110px' },
-  { title: 'To Address', key: 'toAddress', width: '170px' },
-  { title: 'Value', key: 'value', width: '160px' },
-  { title: 'Status', key: 'status', width: '80px' },
-  { title: 'Sigs', key: 'signatureCount', width: '80px' },
-  { title: 'Created', key: 'createdAt', width: '150px' },
-  { title: 'Actions', key: 'actions', sortable: false },
-];
-
-// New transaction form data
-const newTransaction = ref({
-  transactionType: 'ETH',
-  recipient: '0x376d1c280197d6a6b2FBBA5E8D7f77fDEE999E06',
-  amount: '0.000123',
-});
 
 // ========== GOVERNANCE PROPOSALS ==========
 
@@ -960,34 +747,6 @@ const viewOnExplorer = (destination: string) => {
   }
   // Address
   window.open(`${explorerURI}/address/${destination}`, '_blank');
-};
-
-/**
- * Check if contract address is USDC
- */
-const isUSDCContract = (address?: string) => {
-  if (!address) return false;
-  return address?.toLowerCase() === usdcContract.toLowerCase();
-};
-
-/**
- * Check if contract address is USDT
- */
-const isUSDTContract = (address?: string) => {
-  if (!address) return false;
-  return address?.toLowerCase() === usdtContract.toLowerCase();
-};
-
-/**
- * Get color for signature progress indicator
- */
-const getSignatureProgressColor = (signatureCount: number) => {
-  const count = Number(signatureCount);
-  const thresholdNum = Number(threshold.value) || 1;
-
-  if (count >= thresholdNum) return 'success';
-  if (count >= thresholdNum * 0.5) return 'warning';
-  return 'error';
 };
 
 // ========== CONTRACT INTERACTION FUNCTIONS ==========
@@ -1091,295 +850,6 @@ const refreshAll = () => {
   updateContractData();
   updateBalances();
   loadProposals();
-  getTransactionsFromAPI();
-};
-
-// ========== PENDING TRANSACTIONS FUNCTIONS ==========
-
-/**
- * Fetch pending transactions from backend API with retry logic
- */
-const getTransactionsFromAPI = async () => {
-  try {
-    const { data, pagination } = await fetchTransactions(1, 500);
-
-    // Update data
-    transactions.value = Array.isArray(data) ? [...data] : [];
-
-    // Count pending transactions
-    pendingStatusCount.value = transactions.value.filter(
-      (tx) => tx.status === 'pending'
-    ).length;
-  } catch (innerErr) {
-    if (innerErr?.response === undefined) {
-      showSnackbar(
-        'API is unreachable. Please configure the backend correctly',
-        'error'
-      );
-    }
-  } finally {
-    loading.value = false;
-  }
-};
-/**
- * Sign a pending transaction using EIP712 typed data
- */
-const signPendingTx = async (item: Transaction) => {
-  if (!account.value) {
-    showSnackbar('Please connect your wallet first', 'error');
-    return;
-  }
-
-  signingTx.value = item.id;
-  try {
-    if (!window.ethereum) {
-      throw new Error('MetaMask not found');
-    }
-
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
-
-    // Prepare transaction data based on type
-    let toAddress = item.toAddress;
-    let value = '0';
-    let data = '0x';
-
-    if (item.txType === 'eth') {
-      // ETH transfer
-      value = item.value.toString();
-    } else if (item.txType.toLowerCase() === 'erc20') {
-      // ERC20 transfer - encode function call
-      const ERC20_ABI = [
-        'function transfer(address to, uint256 amount) returns (bool)',
-      ];
-      const erc20Interface = new ethers.Interface(ERC20_ABI);
-
-      const amount = ethers.parseUnits(
-        item.erc20Amount ? item.erc20Amount.toString() : '0',
-        item.erc20Decimals ? item.erc20Decimals : 18
-      );
-
-      console.log(
-        `Preparing ERC20 transfer of ${item.erc20Amount} (raw: ${amount}) to ${toAddress} for contract ${item.erc20Contract}`
-      );
-
-      data = erc20Interface.encodeFunctionData('transfer', [toAddress, amount]);
-      toAddress = item.erc20Contract || '';
-      value = '0';
-    }
-
-    // EIP712 domain and types for structured data signing
-    const domain = {
-      name: 'MantiKey',
-      version: '1',
-      chainId: await signer.provider
-        .getNetwork()
-        .then((n) => Number(n.chainId)),
-      verifyingContract: contractAddress,
-    };
-
-    const types = {
-      Transaction: [
-        { name: 'to', type: 'address' },
-        { name: 'value', type: 'uint256' },
-        { name: 'data', type: 'bytes' },
-        { name: 'nonce', type: 'uint256' },
-        { name: 'deadline', type: 'uint256' },
-      ],
-    };
-
-    const message = {
-      to: toAddress,
-      value: value,
-      data: data,
-      nonce: item.nonce,
-      deadline: item.deadline,
-    };
-
-    console.log('Signing transaction:', { domain, types, message, item });
-
-    showSnackbar('Please check your wallet to sign the transaction', 'info');
-    const signature = await signer.signTypedData(domain, types, message);
-
-    console.log('Transaction signed successfully:', signature);
-
-    // Submit signature to backend
-    const body = {
-      item: item,
-      message: message,
-      account: account.value,
-      signature: signature,
-    };
-
-    const { error } = await recordSignature(body);
-
-    if (error) {
-      const errorMessage =
-        error.message || error.error || `Request failed (${error.status})`;
-
-      console.error('Failed to submit signature:', error);
-      showSnackbar(errorMessage, 'error');
-      return;
-    }
-
-    showSnackbar('Transaction signed successfully', 'success');
-    await getTransactionsFromAPI();
-  } finally {
-    signingTx.value = null;
-  }
-};
-
-/**
- * Execute a pending transaction that has enough signatures
- */
-const executePendingTx = async (item: Transaction) => {
-  if (!account.value) {
-    showSnackbar('Please connect your wallet first', 'error');
-    return;
-  }
-
-  console.log('Executing transaction ID:', item.id);
-  executingTx.value = item.id;
-
-  try {
-    if (!window.ethereum) throw new Error('MetaMask not found');
-
-    // Fetch signatures from backend
-    const { signatures } = await fetchSignatures(Number(item.id));
-    if (signatures.length === 0) {
-      showSnackbar('No signatures collected yet', 'warning');
-      return;
-    }
-
-    // Setup provider and contract
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
-    const contract = new ethers.Contract(contractAddress, MANTIKEY_ABI, signer);
-
-    // Extract raw hex signatures
-    const sigs: string[] = signatures.map((s) => s.signature);
-
-    // Rebuild transaction fields for execution
-    let toAddress = item.toAddress;
-    let value = item.value;
-    let data = item.data ?? '0x';
-
-    if (item.txType.toLowerCase() === 'erc20') {
-      const ERC20_ABI = [
-        'function transfer(address to, uint256 amount) returns (bool)',
-      ];
-      const erc20Interface = new ethers.Interface(ERC20_ABI);
-
-      const amount = ethers.parseUnits(
-        item.erc20Amount ?? '0',
-        item.erc20Decimals
-      );
-
-      // Encode transfer function call
-      data = erc20Interface.encodeFunctionData('transfer', [
-        item.toAddress,
-        amount,
-      ]);
-      toAddress = item.erc20Contract!;
-      value = '0';
-    }
-
-    // Execute transaction through multisig contract
-    const tx = await contract.execute(
-      toAddress,
-      value,
-      data,
-      item.nonce,
-      item.deadline,
-      sigs
-    );
-
-    showSnackbar('Transaction sent. Please wait for confirmation', 'success');
-
-    const receipt = await tx.wait();
-    lastTxHash.value = receipt.hash;
-    txHashDialog.value = true;
-
-    // Update transaction status in backend
-    await updateTxStatus(item.id, receipt.hash);
-    await getTransactionsFromAPI();
-  } catch (error: any) {
-    console.error('Error executing transaction:', error);
-    showSnackbar(error.message, 'error');
-  } finally {
-    executingTx.value = null;
-  }
-};
-
-/**
- * Submit a new transaction to the backend
- */
-const submitTransaction = async () => {
-  if (!formValid.value) return;
-
-  submitting.value = true;
-  console.log('Submitting new transaction:', newTransaction.value);
-
-  try {
-    // Get current nonce from contract
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
-    const contract = new ethers.Contract(contractAddress, MANTIKEY_ABI, signer);
-    const nonce = Number(await contract.nonce());
-    console.log('Current nonce:', nonce);
-
-    // Build request body based on transaction type
-    let body: Record<string, any> = {
-      toAddress: newTransaction.value.recipient,
-      data: null,
-      nonce: nonce,
-      deadline: Math.floor(Date.now() / 1000) + 60 * 20, // 20 minutes from now
-    };
-
-    if (newTransaction.value.transactionType === 'ETH') {
-      body.txType = 'eth';
-      body.value = parseEther(newTransaction.value.amount).toString();
-      body.erc20Contract = null;
-      body.erc20Amount = null;
-      body.erc20Symbol = null;
-      body.erc20Decimals = null;
-    } else if (newTransaction.value.transactionType === 'USDC') {
-      body.txType = 'erc20';
-      body.value = '0';
-      body.erc20Contract = config.public.usdcContract;
-      body.erc20Amount = newTransaction.value.amount;
-      body.erc20Symbol = 'USDC';
-      body.erc20Decimals = config.public.usdcDecimals;
-    } else if (newTransaction.value.transactionType === 'USDT') {
-      body.txType = 'erc20';
-      body.value = '0';
-      body.erc20Contract = config.public.usdtContract;
-      body.erc20Amount = newTransaction.value.amount;
-      body.erc20Symbol = 'USDT';
-      body.erc20Decimals = config.public.usdtDecimals;
-    }
-
-    // Submit to backend
-    const { error } = await useFetch(`${backendURI}/transaction`, {
-      method: 'POST',
-      body,
-    });
-
-    if (error.value) {
-      console.error('Failed to submit transaction:', error.value);
-      showSnackbar('Failed to submit transaction', 'error');
-    } else {
-      console.log('Transaction submitted successfully');
-      showSnackbar('Transaction submitted successfully', 'success');
-      newTransactionDialog.value = false;
-      await getTransactionsFromAPI();
-    }
-  } catch (err) {
-    console.error('Unexpected error:', err);
-    showSnackbar('Failed to submit transaction', 'error');
-  } finally {
-    submitting.value = false;
-  }
 };
 
 // ========== GOVERNANCE PROPOSALS FUNCTIONS ==========

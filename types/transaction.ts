@@ -1,7 +1,7 @@
 export type TransactionType = 'eth' | 'erc20';
 export type TransactionStatus = 'pending' | 'executed' | 'expired';
 
-export interface PendingTransaction {
+export interface Transaction {
   id: number;
   toAddress: string;
   txType: TransactionType;
