@@ -1,6 +1,8 @@
 import { ref, onMounted } from 'vue';
 import { MetaMaskSDK, type SDKProvider } from '@metamask/sdk';
 
+import { ethers } from 'ethers';
+
 const isConnected = ref(false);
 const account = ref<string | null>(null);
 const provider = ref<SDKProvider | null>(null);
