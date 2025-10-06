@@ -231,14 +231,37 @@
                   <v-icon>mdi-plus</v-icon>
                   new transaction
                 </v-btn>
+                <v-spacer></v-spacer>
+                <div class="d-flex ga-3 align-center">
+                  <v-select
+                    v-model="selectedStatus"
+                    :items="statusOptions"
+                    label="Status"
+                    clearable
+                    density="compact"
+                    variant="outlined"
+                    style="min-width: 160px; max-width: 250px"
+                  />
+                  <v-select
+                    v-model="selectedCurrency"
+                    :items="currencyOptions"
+                    label="Currency"
+                    clearable
+                    density="compact"
+                    variant="outlined"
+                    style="min-width: 160px; max-width: 250px"
+                  />
+                </div>
               </div>
             </v-card-title>
 
+            <!-- ADD FILTER HERE -->
+            <v-card-text> </v-card-text>
             <!-- Transactions Data Table -->
             <v-data-table
               :headers="transactionsHeaders"
-              :items="transactions"
-              :items-per-page="10"
+              :items="filteredTransactions"
+              :items-per-page="50"
               :loading="loading"
               class="elevation-0"
               loading-text="Loading transactions..."
@@ -471,8 +494,8 @@
               :disabled="!formValid"
               @click="submitTransaction"
             >
-              <v-icon class="mr-2">mdi-check</v-icon>
-              Submit
+              <v-icon class="mr-2">mdi-plus</v-icon>
+              CREATE
             </v-btn>
           </v-card-actions>
         </v-card>
@@ -633,7 +656,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, unref, nextTick } from 'vue';
+import {
+  ref,
+  onMounted,
+  onUnmounted,
+  watch,
+  unref,
+  nextTick,
+  computed,
+} from 'vue';
 import { useClipboard } from '@vueuse/core';
 import { useRuntimeConfig, useFetch } from '#app';
 import { useMetaMask } from '../composables/useMetaMask';
@@ -701,6 +732,58 @@ const snackbar = ref({
   show: false,
   text: '',
   color: 'success',
+});
+
+// Your existing data and methods
+const selectedStatus = ref<string | null>(null);
+const selectedCurrency = ref<string | null>(null);
+
+const statusOptions = [
+  { title: 'All', value: null },
+  { title: 'Pending', value: 'pending' },
+  { title: 'Executed', value: 'executed' },
+  { title: 'Expired', value: 'expired' },
+];
+const currencyOptions = [
+  { title: 'All', value: null },
+  { title: 'ETH', value: 'eth' },
+  { title: 'USDC', value: 'usdc' },
+  { title: 'USDT', value: 'usdt' },
+];
+
+// Filtered transactions based on selected status
+// Filtered transactions based on selected status and currency
+const filteredTransactions = computed(() => {
+  let filtered = transactions.value;
+
+  // Filter by status
+  if (selectedStatus.value) {
+    filtered = filtered.filter((tx) => tx.status === selectedStatus.value);
+  }
+
+  // Filter by currency
+  if (selectedCurrency.value) {
+    filtered = filtered.filter((tx) => {
+      if (selectedCurrency.value === 'eth') {
+        return tx.txType === 'eth';
+      } else if (selectedCurrency.value === 'usdc') {
+        return (
+          tx.txType === 'erc20' &&
+          tx.erc20Contract !== null &&
+          isUSDCContract(tx.erc20Contract)
+        );
+      } else if (selectedCurrency.value === 'usdt') {
+        return (
+          tx.txType === 'erc20' &&
+          tx.erc20Contract !== null &&
+          isUSDTContract(tx.erc20Contract)
+        );
+      }
+      return false;
+    });
+  }
+
+  return filtered;
 });
 
 // ========== CONTRACT DATA STATE ==========

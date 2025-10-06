@@ -1001,6 +1001,15 @@ const handleSubmitProposal = async () => {
         ) {
           throw new Error('New threshold must be at least 1');
         }
+
+        if (
+          Number(newProposal.value.newThreshold) === Number(threshold.value)
+        ) {
+          throw new Error(
+            'New threshold must be not the same as old threshold'
+          );
+        }
+
         tx = await contract.proposeChangeThreshold(
           newProposal.value.newThreshold
         );

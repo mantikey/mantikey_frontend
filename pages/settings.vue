@@ -134,15 +134,16 @@
               <tbody>
                 <tr v-for="(entry, index) in addressBook" :key="index">
                   <td>{{ entry.label }}</td>
-                  <td class="text-truncate">{{ entry.address }}</td>
+                  <td class="text-truncate">
+                    {{ entry.address }}
+                    <v-btn
+                      icon="mdi-content-copy"
+                      size="x-small"
+                      variant="text"
+                      @click="copyToClipboard(entry.address)"
+                    />
+                  </td>
                   <td class="text-center">
-                    <v-icon
-                      size="small"
-                      class="me-2"
-                      @click="editAddress(index)"
-                    >
-                      mdi-pencil
-                    </v-icon>
                     <v-icon size="small" @click="deleteAddress(index)">
                       mdi-delete
                     </v-icon>
@@ -150,6 +151,18 @@
                 </tr>
               </tbody>
             </v-table>
+          </v-card>
+        </v-container>
+      </v-row>
+
+      <v-row class="mt-5">
+        <v-container fluid class="d-flex">
+          <v-card class="pa-4" max-width="1200" width="100%">
+            <v-card-text class="text-h6 pa-0">
+              <v-btn variant="outlined" @click="exportTxCSV"
+                >EXPORT TRANSACTIONS AS CSV
+              </v-btn>
+            </v-card-text>
           </v-card>
         </v-container>
       </v-row>
@@ -197,8 +210,6 @@ const newLabel = ref('');
 const newAddress = ref('');
 const addressBook = ref<Entry[]>([]);
 
-let sessionSignature: string | null = null;
-
 // MetaMask wallet integration
 const { isConnected, account, connect, disconnect, getBalance, signMessage } =
   useMetaMask();
@@ -217,8 +228,57 @@ const snackbar = ref({
 });
 // ========== UTILITY FUNCTIONS ==========
 
+async function exportTxCSV() {
+  try {
+    // Build query parameters
+
+    const response = await fetch(`${backendURI}/transactions/export`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'text/csv',
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to export transactions');
+    }
+
+    // Get the blob data
+    const blob = await response.blob();
+
+    // Create a download link and trigger it
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+
+    // Extract filename from Content-Disposition header or use default
+    const contentDisposition = response.headers.get('Content-Disposition');
+    const filenameMatch = contentDisposition?.match(/filename="(.+)"/);
+    const filename =
+      filenameMatch?.[1] ||
+      `transactions_${new Date().toISOString().split('T')[0]}.csv`;
+
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+
+    // Cleanup
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(downloadUrl);
+    showSnackbar('transactions exported. check browser download', 'success');
+    return { success: true };
+  } catch (error) {
+    console.error('Error exporting transactions:', error);
+    throw error;
+  }
+}
+
 async function addAddress() {
-  if (!newLabel.value.trim() || !newAddress.value.trim()) return;
+  if (!newLabel.value.trim() || !newAddress.value.trim()) {
+    showSnackbar('missing address and/or label', 'error');
+    return;
+  }
 
   try {
     let body: Record<string, any> = {
@@ -251,6 +311,7 @@ async function addAddress() {
       showSnackbar('Label saved successfully', 'success');
 
       //retrive labels
+      await getLabels();
     }
   } catch (err) {
     console.error('Unexpected error:', err);
@@ -261,16 +322,29 @@ async function addAddress() {
   newAddress.value = '';
 }
 
-function editAddress(index: number) {
-  const entry = addressBook.value[index];
-  newLabel.value = entry.label;
-  newAddress.value = entry.address;
-  console.log('editing', entry);
-}
-
 async function deleteAddress(index: number) {
   const entry = addressBook.value[index];
-  console.log('Deleting', entry);
+
+  try {
+    let { data, error } = await useFetch(`${backendURI}/label`, {
+      method: 'DELETE',
+      params: { owner: account.value, address: entry.address },
+    });
+
+    if (error.value) {
+      if (error.value.data.error) {
+        showSnackbar(error.value.data.error, 'error');
+      } else {
+        showSnackbar('failed to delete label', 'error');
+      }
+      return;
+    }
+    showSnackbar('entry deleted', 'success');
+    await getLabels();
+  } catch (err) {
+    console.error('Unexpected error:', err);
+    showSnackbar('Failed to delete label', 'error');
+  }
 }
 
 /**
@@ -377,7 +451,6 @@ onMounted(async () => {
   // Listen for chain/network changes
   window.ethereum.on('chainChanged', handleChainChanged);
 
-  //retrive labels (GET on /labels with owner as queery parametr)
   await getLabels();
 });
 
